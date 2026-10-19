@@ -39,7 +39,7 @@ class HidPacketDevice:
 
     def read(self, timeout_ms: int) -> bytes | None:
         try:
-            r = self._h.read(Radio.PACKET_SIZE, timeout_ms)
+            r = self._h.read(Radio.PACKET_SIZE, max(timeout_ms, 1))
         except OSError as e:
             raise LinkError(f"dongle read failed: {e}") from e
         return bytes(r) if r else None

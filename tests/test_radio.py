@@ -145,3 +145,20 @@ def test_hid_errors_become_linkerror(monkeypatch):
         dev.write(bytes(20))
     with pytest.raises(LinkError):
         dev.read(1)
+
+
+def test_read_zero_timeout_never_blocks_forever():
+    from engine.links import radio
+
+    class H:
+        def __init__(self):
+            self.timeouts = []
+
+        def read(self, n, t):
+            self.timeouts.append(t)
+            return []
+
+    dev = radio.HidPacketDevice.__new__(radio.HidPacketDevice)
+    dev._h = H()
+    assert dev.read(0) is None
+    assert dev._h.timeouts and dev._h.timeouts[0] >= 1

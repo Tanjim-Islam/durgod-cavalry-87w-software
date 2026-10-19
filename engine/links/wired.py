@@ -19,7 +19,11 @@ class FeatureDevice(Protocol):
 
 
 def find_wired_path() -> str | None:
-    for d in hid.enumerate(WIRED_VID, WIRED_PID):
+    try:
+        devices = hid.enumerate(WIRED_VID, WIRED_PID)
+    except OSError:
+        return None
+    for d in devices:
         if d["usage_page"] == 0xFF00 and b"col06" in d["path"].lower():
             return d["path"].decode()
     return None
@@ -69,7 +73,11 @@ class WiredLink(Link):
         size = len(data) if size is None else size
         hdr = bytes([Wired.REPORT_ID, cmd, sub, 0, count, index, size & 0xFF, size >> 8])
         self.dev.set_feature((hdr + data).ljust(Wired.REPORT_SIZE, b"\0"))
-        return self.dev.get_feature(Wired.REPORT_ID, Wired.REPORT_SIZE)
+        reply = self.dev.get_feature(Wired.REPORT_ID, Wired.REPORT_SIZE)
+        # reads echo the request header; anything else is a stale or foreign reply
+        if cmd & 0x80 and (len(reply) < 8 or (reply[1], reply[2], reply[5]) != (cmd, sub, index)):
+            raise LinkError(f"reply does not match request {cmd:#x}/{sub}/{index}")
+        return reply
 
     def identify(self) -> bytes:
         return self._xfer(Wired.IDENTIFY, 1, size=6)[8:14]

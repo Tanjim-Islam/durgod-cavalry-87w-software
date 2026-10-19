@@ -15,6 +15,8 @@ class FakeKeyboard:
         self.sent: list[bytes] = []
         self.connected = True
         self.fail_on_write = False
+        self.asleep = False          # 2.4G: dongle answers "offline", keyboard answers nothing
+        self.link_byte = None        # when set, firmware owns config 0x0E and forces this value
         self._macro_buf = bytearray(self.state.macros)
 
     # ---------- wired: feature report 6 ----------
@@ -53,7 +55,7 @@ class FakeKeyboard:
         elif cmd == R_CONFIG:
             out[8:136] = s.config
         elif cmd == 0x04:
-            s.config = bytes(body)
+            s.config = self._own_link_byte(bytes(body))
         elif cmd == R_LAYER:
             out[8:512] = s.layers[sub]
         elif cmd == 0x03:
@@ -77,6 +79,11 @@ class FakeKeyboard:
         if cmd < 0x80:
             return bytes([4, 4, 4, 4, 4, 4, 0x5A, 0xA5]) + bytes(512)
         return bytes(out)
+
+    def _own_link_byte(self, cfg: bytes) -> bytes:
+        if self.link_byte is None:
+            return cfg
+        return cfg[:0x0E] + bytes([self.link_byte]) + cfg[0x0F:]
 
     # ---------- radio: report 0x13 packets ----------
     def packet_device(self, drop_every: int = 0):
@@ -121,10 +128,12 @@ class FakeKeyboard:
                 out.append(bytes(q))
             return out
 
+        if cmd == 0x07:
+            return reply(b"\x00" if self.asleep else b"\x01")
+        if self.asleep:
+            return []
         if cmd == 0x05:
             return reply(self.identity + b"\x01\0\0\0")
-        if cmd == 0x07:
-            return reply(b"\x01")
         if cmd == 0x44:
             return reply(s.config)
         key = (cmd, sub)
@@ -136,7 +145,7 @@ class FakeKeyboard:
             data = b"".join(buf[i] for i in range(total))
             del partial[key]
             if cmd == 0x04:
-                s.config = data
+                s.config = self._own_link_byte(data)
             elif cmd == 0x01:
                 s.layers[sub] = data
             elif cmd == 0x02:

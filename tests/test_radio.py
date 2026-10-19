@@ -108,25 +108,24 @@ def test_read_reply_index_out_of_range_raises_linkerror():
         link.read_config()
 
 
-def test_open_link_closes_handle_when_online_fails(monkeypatch):
+def test_open_link_radio_does_not_probe(monkeypatch):
     from engine.links import detect
 
-    class Boom:
-        closed = False
+    class Dev:
+        written = []
 
         def write(self, p):
-            raise LinkError("unplugged")
+            Dev.written.append(p)
 
         def read(self, t):
             return None
 
         def close(self):
-            Boom.closed = True
+            pass
 
-    monkeypatch.setattr(detect, "HidPacketDevice", Boom)
-    with pytest.raises(LinkError):
-        detect.open_link("radio")
-    assert Boom.closed
+    monkeypatch.setattr(detect, "HidPacketDevice", Dev)
+    assert detect.open_link("radio").kind == "radio"
+    assert Dev.written == []
 
 
 def test_hid_errors_become_linkerror(monkeypatch):
@@ -162,3 +161,48 @@ def test_read_zero_timeout_never_blocks_forever():
     dev._h = H()
     assert dev.read(0) is None
     assert dev._h.timeouts and dev._h.timeouts[0] >= 1
+
+
+class SilentDongle:
+    def __init__(self):
+        self.written = []
+
+    def write(self, p):
+        self.written.append(p)
+
+    def read(self, timeout_ms):
+        return None
+
+    def close(self):
+        pass
+
+
+def test_online_is_one_short_probe():
+    import time
+    dev = SilentDongle()
+    link = RadioLink(dev)                    # full read budget would be several seconds
+    t = time.monotonic()
+    assert link.online() is False
+    assert time.monotonic() - t < 1.0
+    assert len(dev.written) == 1 and dev.written[0][1] == 0x07
+
+
+def test_online_false_when_keyboard_asleep(kb):
+    kb.asleep = True
+    assert RadioLink(kb.packet_device(), timeout_ms=1).online() is False
+    kb.asleep = False
+    assert RadioLink(kb.packet_device(), timeout_ms=1).online() is True
+
+
+def test_enumerate_oserror_is_no_device(monkeypatch):
+    from engine.links import detect, radio, wired
+
+    def boom(*a):
+        raise OSError("hid busy")
+    for mod in (detect, radio, wired):
+        monkeypatch.setattr(mod.hid, "enumerate", boom)
+    assert detect.detect_link_kind() is None
+    with pytest.raises(LinkError):
+        radio.HidPacketDevice()
+    with pytest.raises(LinkError):
+        detect.open_link("wired")

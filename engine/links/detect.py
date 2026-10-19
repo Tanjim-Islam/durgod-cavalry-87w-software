@@ -1,8 +1,6 @@
 """Which link is up right now, and how to open it."""
 from __future__ import annotations
 
-from contextlib import suppress
-
 import hid
 
 from .base import Link, LinkError
@@ -14,7 +12,11 @@ from ..protocol import RADIO_PID, RADIO_VID
 def detect_link_kind() -> str | None:
     if find_wired_path():
         return "wired"
-    if any(d["usage_page"] == 0xFF02 for d in hid.enumerate(RADIO_VID, RADIO_PID)):
+    try:
+        radio = hid.enumerate(RADIO_VID, RADIO_PID)
+    except OSError:
+        return None
+    if any(d["usage_page"] == 0xFF02 for d in radio):
         return "radio"
     return None
 
@@ -26,13 +28,5 @@ def open_link(kind: str) -> Link:
             raise LinkError("keyboard cable link vanished")
         return WiredLink(WinFeatureDevice(path))
     if kind == "radio":
-        link = RadioLink(HidPacketDevice())
-        try:
-            if not link.online():
-                raise LinkError("dongle present but keyboard not connected")
-        except BaseException:
-            with suppress(OSError):
-                link.close()
-            raise
-        return link
+        return RadioLink(HidPacketDevice())  # DeviceManager probes online() itself
     raise LinkError(f"unknown link kind {kind!r}")

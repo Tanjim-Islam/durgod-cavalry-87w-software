@@ -19,8 +19,11 @@ class PacketDevice(Protocol):
 
 class HidPacketDevice:
     def __init__(self):
-        path = next((d["path"] for d in hid.enumerate(RADIO_VID, RADIO_PID)
-                     if d["usage_page"] == 0xFF02), None)
+        try:
+            devices = hid.enumerate(RADIO_VID, RADIO_PID)
+        except OSError as e:
+            raise LinkError(f"cannot list USB devices: {e}") from e
+        path = next((d["path"] for d in devices if d["usage_page"] == 0xFF02), None)
         if path is None:
             raise LinkError("2.4G dongle not found")
         self._h = hid.device()
@@ -62,6 +65,7 @@ def make_packet(cmd: int, total: int, index: int, sub: int, data: bytes) -> byte
 
 class RadioLink(Link):
     kind = "radio"
+    PROBE_MS = 150
 
     def __init__(self, dev: PacketDevice, retries: int = 5, timeout_ms: int = 500):
         self.dev, self.retries, self.timeout_ms = dev, retries, timeout_ms
@@ -70,16 +74,18 @@ class RadioLink(Link):
         if cmd not in Radio.ALLOWED:
             raise LinkError(f"radio command {cmd:#x} is not whitelisted")
 
-    def _drain(self) -> None:
-        deadline = time.monotonic() + max(self.timeout_ms, 100) / 1000
+    def _drain(self, timeout_ms: int) -> None:
+        deadline = time.monotonic() + max(timeout_ms, 100) / 1000
         while time.monotonic() < deadline and self.dev.read(0):
             pass
 
-    def _recv(self, cmd: int, ack: tuple[int, int] | None = None) -> bytes | None:
+    def _recv(self, cmd: int, ack: tuple[int, int] | None = None,
+              timeout_ms: int | None = None) -> bytes | None:
         """Next reply to cmd; with ack=(total, index), only a matching write ack counts."""
-        deadline = time.monotonic() + self.timeout_ms / 1000
+        timeout_ms = self.timeout_ms if timeout_ms is None else timeout_ms
+        deadline = time.monotonic() + timeout_ms / 1000
         while True:
-            r = self.dev.read(self.timeout_ms)
+            r = self.dev.read(timeout_ms)
             if r is None:
                 return None
             if r[0] == Radio.REPORT_ID and (r[1] & 0x7F) == cmd:
@@ -88,15 +94,15 @@ class RadioLink(Link):
             if time.monotonic() >= deadline:
                 return None
 
-    def _read(self, cmd: int, size: int) -> bytes:
+    def _try_read(self, cmd: int, size: int, attempts: int, timeout_ms: int) -> bytes | None:
         self._check(cmd)
         got: dict[int, bytes] = {}
         total = None
-        for _ in range(self.retries + 3):
-            self._drain()
+        for _ in range(attempts):
+            self._drain(timeout_ms)
             self.dev.write(make_packet(cmd, 1, 0, 0, b""))
             for _ in range(0x80):
-                r = self._recv(cmd)
+                r = self._recv(cmd, timeout_ms=timeout_ms)
                 if r is None or (r[1] & 0x80):
                     break
                 n = r[2] & 0x7F
@@ -112,14 +118,20 @@ class RadioLink(Link):
                 data = b"".join(got[i] for i in range(total))
                 if len(data) >= size:
                     return data[:size]
-        raise LinkError(f"incomplete reply to {cmd:#x}")
+        return None
+
+    def _read(self, cmd: int, size: int) -> bytes:
+        data = self._try_read(cmd, size, self.retries + 3, self.timeout_ms)
+        if data is None:
+            raise LinkError(f"incomplete reply to {cmd:#x}")
+        return data
 
     def _write(self, cmd: int, data: bytes, sub: int = 0) -> None:
         self._check(cmd)
         chunks = [data[i:i + Radio.CHUNK] for i in range(0, len(data), Radio.CHUNK)]
         for i, c in enumerate(chunks):
             for _ in range(self.retries):
-                self._drain()
+                self._drain(self.timeout_ms)
                 self.dev.write(make_packet(cmd, len(chunks), i, sub, c))
                 if self._recv(cmd, ack=(len(chunks), i)):
                     break
@@ -130,7 +142,9 @@ class RadioLink(Link):
         return self._read(Radio.IDENTIFY, 10)[:6]
 
     def online(self) -> bool:
-        return self._read(Radio.ONLINE, 1) == b"\x01"
+        """One short probe: is the keyboard awake and paired? No reply counts as no."""
+        timeout = min(self.timeout_ms, self.PROBE_MS)
+        return self._try_read(Radio.ONLINE, 1, 1, timeout) == b"\x01"
 
     def read_config(self) -> bytes:
         return self._read(Radio.READ_CONFIG, CONFIG_SIZE)

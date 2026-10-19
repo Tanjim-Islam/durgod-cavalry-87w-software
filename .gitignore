@@ -1,0 +1,30 @@
+# local-only folders
+docs/
+probe/
+.superpowers/
+FINDINGS.md
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+*.spec
+
+# node / ui
+node_modules/
+ui/dist/
+ui/.vite/
+
+# logs, secrets, os
+*.log
+.env
+.env.*
+Thumbs.db
+desktop.ini
+.DS_Store
+.idea/
+.vscode/

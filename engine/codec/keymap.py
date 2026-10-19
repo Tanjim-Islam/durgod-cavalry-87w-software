@@ -69,8 +69,8 @@ KeyAction = Union[NoAction, Key, Mouse, Consumer, MacroRef, System, Lighting, Fn
 
 
 def _byte(name: str, v: int) -> int:
-    if not 0 <= v <= 0xFF:
-        raise KeymapError(f"{name} out of range: {v}")
+    if type(v) is not int or not 0 <= v <= 0xFF:
+        raise KeymapError(f"{name} must be an int in 0..255, got {v!r}")
     return v
 
 
@@ -87,7 +87,7 @@ def decode_entry(e: bytes) -> KeyAction:
             return Key(b3, mods=b1)
     if t == 0x01 and b1:
         return Mouse(b1, b2, b3)
-    if t == 0x02 and b1 == 0:
+    if t == 0x02 and b1 == 0 and (b2 or b3):
         return Consumer((b2 << 8) | b3)
     if t == 0x03 and b1 in (MACRO_ONCE, MACRO_HOLD, MACRO_TOGGLE):
         return MacroRef(b3, mode=b1, count=b2)
@@ -105,15 +105,17 @@ def encode_entry(a: KeyAction) -> bytes:
         return b"\0\0\0\0"
     if isinstance(a, Key):
         h, m = _byte("hid", a.hid), _byte("mods", a.mods)
+        if type(a.high) is not bool:
+            raise KeymapError(f"high must be a bool, got {a.high!r}")
         return bytes([0, m, h, 0]) if a.high else bytes([0, m, 0, h])
     if isinstance(a, Mouse):
         return bytes([1, _byte("mouse", a.code), _byte("b2", a.b2), _byte("b3", a.b3)])
     if isinstance(a, Consumer):
-        if not 0 < a.usage <= 0xFFFF:
-            raise KeymapError(f"consumer usage out of range: {a.usage}")
+        if type(a.usage) is not int or not 0 < a.usage <= 0xFFFF:
+            raise KeymapError(f"consumer usage out of range: {a.usage!r}")
         return bytes([2, 0, a.usage >> 8, a.usage & 0xFF])
     if isinstance(a, MacroRef):
-        if a.mode not in (MACRO_ONCE, MACRO_HOLD, MACRO_TOGGLE):
+        if _byte("mode", a.mode) not in (MACRO_ONCE, MACRO_HOLD, MACRO_TOGGLE):
             raise KeymapError(f"bad macro mode {a.mode}")
         return bytes([3, a.mode, _byte("count", a.count), _byte("index", a.index)])
     if isinstance(a, System):
@@ -123,7 +125,7 @@ def encode_entry(a: KeyAction) -> bytes:
     if isinstance(a, FnKey):
         return b"\x0d\0\0\0"
     if isinstance(a, Raw):
-        if len(a.data) != 4:
+        if type(a.data) is not bytes or len(a.data) != 4:
             raise KeymapError("raw entry must be 4 bytes")
         return bytes(a.data)
     raise KeymapError(f"unknown action {a!r}")
@@ -152,23 +154,30 @@ _NAMES = {v: k for k, v in _TYPES.items()}
 
 
 def action_to_dict(a: KeyAction) -> dict:
-    d = {"type": _NAMES[type(a)]}
+    name = _NAMES.get(type(a))
+    if name is None:
+        raise KeymapError(f"unknown action {a!r}")
+    d = {"type": name}
     for k, v in a.__dict__.items():
         d[k] = v.hex() if isinstance(v, bytes) else v
     return d
 
 
 def action_from_dict(d: dict) -> KeyAction:
-    cls = _TYPES.get(d.get("type"))
-    if cls is None:
-        raise KeymapError(f"unknown action type {d.get('type')!r}")
-    kw = {k: v for k, v in d.items() if k != "type"}
-    if cls is Raw:
-        kw["data"] = bytes.fromhex(kw["data"])
     try:
-        return cls(**kw)
-    except TypeError as e:
+        cls = _TYPES.get(d.get("type"))
+        if cls is None:
+            raise KeymapError(f"unknown action type {d.get('type')!r}")
+        kw = {k: v for k, v in d.items() if k != "type"}
+        if cls is Raw:
+            kw["data"] = bytes.fromhex(kw["data"])
+        a = cls(**kw)
+    except KeymapError:
+        raise
+    except (AttributeError, KeyError, TypeError, ValueError) as e:
         raise KeymapError(str(e)) from e
+    encode_entry(a)  # reject bad values at load time, not at write time
+    return a
 
 
 # Slot -> label for the Cavalry 87W base layer (slot = column * 6 + row). Read from the real keyboard.

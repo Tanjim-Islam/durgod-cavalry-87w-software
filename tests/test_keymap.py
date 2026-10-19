@@ -61,3 +61,62 @@ def test_wired_unsafe():
     assert wired_unsafe(Key(0x73)) is True
     assert wired_unsafe(Key(0x70)) is False
     assert wired_unsafe(Consumer(0xE2)) is False
+
+
+@pytest.mark.parametrize("hexs", [
+    "02000000", "01000000", "03000000", "07000100", "0d000001", "02ffff00",
+    "07000000", "08000000", "00ff0000", "00010101", "03010000", "ffffffff",
+])
+def test_boundary_entries_round_trip(hexs):
+    raw = bytes.fromhex(hexs)
+    assert encode_entry(decode_entry(raw)) == raw
+
+
+def test_every_decodable_entry_round_trips():
+    values = (0x00, 0x01, 0x02, 0x03, 0x04, 0x07, 0x08, 0x0D, 0xFF)
+    for t in range(16):
+        for b1 in values:
+            for b2 in values:
+                for b3 in values:
+                    raw = bytes([t, b1, b2, b3])
+                    assert encode_entry(decode_entry(raw)) == raw, raw.hex()
+
+
+def test_zero_payload_entries_fall_to_raw():
+    for hexs in ("02000000", "01000000", "03000000", "07000100"):
+        assert decode_entry(bytes.fromhex(hexs)) == Raw(bytes.fromhex(hexs))
+
+
+@pytest.mark.parametrize("d", [
+    None,
+    {},
+    {"type": ["x"]},
+    {"type": "raw"},
+    {"type": "raw", "data": "zz"},
+    {"type": "raw", "data": 5},
+    {"type": "raw", "data": "aabb"},
+    {"type": "key"},
+    {"type": "key", "hid": "4"},
+    {"type": "key", "hid": 1.5},
+    {"type": "key", "hid": 4, "bogus": 1},
+    {"type": "key", "hid": 0x100},
+    {"type": "key", "hid": 4, "high": "yes"},
+    {"type": "consumer", "usage": 0},
+])
+def test_malformed_dict_raises_keymap_error(d):
+    with pytest.raises(KeymapError):
+        action_from_dict(d)
+
+
+def test_encode_rejects_wrong_types():
+    bad = [Key(1.5), Key("4"), Key(True), Key(4, high="yes"), Mouse("1"), Consumer("4"),
+           Consumer(1.5), MacroRef(0, mode=1.0), MacroRef(0, count="1"), System(None),
+           Lighting(1.0), Raw("abcd"), Raw(b"\x01\x02\x03")]
+    for a in bad:
+        with pytest.raises(KeymapError):
+            encode_entry(a)
+
+
+def test_action_to_dict_rejects_unknown_type():
+    with pytest.raises(KeymapError):
+        action_to_dict(object())

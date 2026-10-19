@@ -245,3 +245,88 @@ def test_invalid_snapshot_not_saved(tmp_path, snap):
 def test_keep_must_be_positive(tmp_path):
     with pytest.raises(StoreError):
         Store(tmp_path, keep=0)
+
+
+def test_write_fsyncs_tmp_before_replace(tmp_path, snap, monkeypatch):
+    import engine.store as store_mod
+    calls = []
+    real_fsync, real_replace = store_mod.os.fsync, store_mod.Path.replace
+    monkeypatch.setattr(store_mod.os, "fsync", lambda fd: (calls.append("fsync"), real_fsync(fd)))
+    monkeypatch.setattr(store_mod.Path, "replace",
+                        lambda self, t: (calls.append("replace"), real_replace(self, t))[1])
+    Store(tmp_path).save_mirror(snap)
+    assert calls == ["fsync", "replace"]
+
+
+def test_corrupt_mirror_is_set_aside(tmp_path, snap):
+    st = Store(tmp_path)
+    (tmp_path / "mirror.json").write_text("{trunc")
+    assert st.load_mirror_or_none() is None
+    assert not (tmp_path / "mirror.json").exists()
+    aside = list(tmp_path.glob("mirror.corrupt-*.json"))
+    assert len(aside) == 1 and aside[0].read_text() == "{trunc"
+    st.save_mirror(snap)
+    assert st.load_mirror_or_none().to_json() == snap.to_json()
+
+
+def test_corrupt_factory_is_set_aside_so_a_new_one_can_be_taken(tmp_path, snap):
+    st = Store(tmp_path)
+    st.save_backup(snap, factory=True)
+    (tmp_path / "backups" / "factory.json").write_text("")
+    assert st.has_factory() is False
+    assert list((tmp_path / "backups").glob("factory.corrupt-*.json"))
+    assert all(not i.factory for i in st.list_backups())
+    st.save_backup(snap, factory=True)
+    assert st.has_factory() and st.load_backup("factory").to_json() == snap.to_json()
+
+
+def test_rolling_cleanup_failure_does_not_abort_backup(tmp_path, snap, monkeypatch):
+    st = Store(tmp_path, keep=1)
+    st.save_backup(snap, label="old")
+
+    def boom(self, missing_ok=False):
+        raise PermissionError("locked")
+    monkeypatch.setattr("pathlib.Path.unlink", boom)
+    name = st.save_backup(snap, label="new")
+    monkeypatch.undo()
+    assert st.load_backup(name).to_json() == snap.to_json()
+
+
+def test_latest_backup(tmp_path, snap):
+    st = Store(tmp_path)
+    assert st.latest_backup() is None
+    st.save_backup(snap, factory=True)
+    assert st.latest_backup() is None
+    other = snap.copy()
+    other.palette = bytes(483)
+    st.save_backup(snap)
+    st.save_backup(other)
+    assert st.latest_backup() == other
+
+
+def _profile_file(tmp_path, snap, name="Imp"):
+    p = tmp_path / "in.json"
+    p.write_text(json.dumps({"name": name, "snapshot": snap.to_json()}))
+    return p
+
+
+def test_import_profile_refuses_existing_name_unless_overwrite(tmp_path, snap):
+    st = Store(tmp_path)
+    st.save_profile("Imp", snap)
+    other = snap.copy()
+    other.palette = bytes(483)
+    p = _profile_file(tmp_path, other)
+    with pytest.raises(StoreError, match="exists"):
+        st.import_profile(p)
+    assert st.load_profile("Imp") == snap
+    assert st.import_profile(p, overwrite=True) == "Imp"
+    assert st.load_profile("Imp") == other
+
+
+def test_import_profile_rejects_undecodable_macros(tmp_path, snap):
+    st = Store(tmp_path)
+    bad = snap.copy()
+    bad.macros = bytes([6, 0]) + bytes(4094)
+    with pytest.raises(StoreError):
+        st.import_profile(_profile_file(tmp_path, bad))
+    assert st.list_profiles() == []

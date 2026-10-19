@@ -4,12 +4,16 @@ from __future__ import annotations
 import json
 import os
 import re
+from contextlib import suppress
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
+from .codec.config import Config
+from .codec.keymap import decode_layer
+from .codec.macro import decode_macros
 from .codec.snapshot import Snapshot, SnapshotError
 
 NAME_RE = re.compile(r"[\w .()-]{1,40}")
@@ -19,6 +23,10 @@ RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
 
 
 class StoreError(ValueError):
+    pass
+
+
+class ProfileExists(StoreError):
     pass
 
 
@@ -50,7 +58,10 @@ class Store:
     def _write(self, path: Path, data: dict) -> None:
         tmp = path.with_name(path.name + ".tmp")
         try:
-            tmp.write_text(json.dumps(data, indent=1, default=str), encoding="utf-8")
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(json.dumps(data, indent=1, default=str))
+                f.flush()
+                os.fsync(f.fileno())
             tmp.replace(path)
         except BaseException:
             tmp.unlink(missing_ok=True)
@@ -64,6 +75,13 @@ class Store:
         if not isinstance(d, dict):
             raise StoreError(f"{path.name} is not a JSON object")
         return d
+
+    @staticmethod
+    def _set_aside(p: Path) -> None:
+        """Keep an unreadable file for inspection, out of the app's way."""
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        with suppress(OSError):
+            p.replace(p.with_name(f"{p.stem}.corrupt-{stamp}.json"))
 
     @staticmethod
     def _snapshot(d: dict, where: str) -> Snapshot:
@@ -98,6 +116,14 @@ class Store:
         except SnapshotError as e:
             raise StoreError(f"mirror.json: {e}") from e
 
+    def load_mirror_or_none(self) -> Snapshot | None:
+        """The mirror, or None when missing or unreadable (an unreadable one is set aside)."""
+        try:
+            return self.load_mirror()
+        except StoreError:
+            self._set_aside(self.root / "mirror.json")
+            return None
+
     def save_mirror(self, s: Snapshot) -> None:
         s.validate()
         self._write(self.root / "mirror.json", s.to_json())
@@ -121,7 +147,8 @@ class Store:
         if not factory:
             for old in [i for i in self.list_backups()
                         if not i.factory and i.name != "factory"][self.keep:]:
-                (self.root / "backups" / f"{old.name}.json").unlink(missing_ok=True)
+                with suppress(OSError):
+                    (self.root / "backups" / f"{old.name}.json").unlink(missing_ok=True)
         return name
 
     def list_backups(self) -> list[BackupInfo]:
@@ -142,8 +169,26 @@ class Store:
         name = self._backup_name(name)
         return self._snapshot(self._read(self.root / "backups" / f"{name}.json"), name)
 
+    def latest_backup(self) -> Snapshot | None:
+        """Newest rolling (non-factory) backup, or None."""
+        for i in self.list_backups():
+            if not i.factory and i.name != "factory":
+                try:
+                    return self.load_backup(i.name)
+                except StoreError:
+                    return None
+        return None
+
     def has_factory(self) -> bool:
-        return (self.root / "backups" / "factory.json").exists()
+        p = self.root / "backups" / "factory.json"
+        if not p.exists():
+            return False
+        try:
+            self._snapshot(self._read(p), "factory")
+        except StoreError:
+            self._set_aside(p)
+            return False
+        return True
 
     # -- profiles
     def save_profile(self, name: str, s: Snapshot) -> None:
@@ -164,10 +209,20 @@ class Store:
     def export_profile(self, name: str, path: Path) -> None:
         self._write(Path(path), self._read(self.root / "profiles" / f"{self._name(name)}.json"))
 
-    def import_profile(self, path: Path) -> str:
+    def import_profile(self, path: Path, overwrite: bool = False) -> str:
         d = self._read(Path(path))
         name = self._name(d.get("name", Path(path).stem))
-        self.save_profile(name, self._snapshot(d, Path(path).name))
+        s = self._snapshot(d, Path(path).name)
+        try:
+            Config(s.config)
+            for layer in s.layers:
+                decode_layer(layer)
+            decode_macros(s.macros)
+        except ValueError as e:
+            raise StoreError(f"{Path(path).name}: {e}") from e
+        if not overwrite and (self.root / "profiles" / f"{name}.json").exists():
+            raise ProfileExists(f"a profile named {name!r} already exists")
+        self.save_profile(name, s)
         return name
 
     # -- settings

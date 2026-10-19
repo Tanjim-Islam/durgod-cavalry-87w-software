@@ -102,7 +102,7 @@ def decode_macros(raw: bytes) -> list[Macro]:
     for i in range(first // 4):
         off = raw[i * 4] | raw[i * 4 + 1] << 8
         size = raw[i * 4 + 2] | raw[i * 4 + 3] << 8
-        if off + size > MACRO_SIZE:
+        if off < first or off + size > MACRO_SIZE:
             raise MacroError("macro entry outside buffer")
         out.append(decode_macro(raw[off:off + size]))
     return out

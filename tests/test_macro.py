@@ -119,3 +119,10 @@ def test_single_blob_over_u16_raises_macro_error():
 def test_macro_from_dict_rejects_bad_input(d):
     with pytest.raises(MacroError):
         macro_from_dict(d)
+
+
+def test_entry_offset_inside_table_rejected():
+    # entry 1 points at offset 0, which decodes as a valid macro made of table bytes
+    raw = bytes([16, 0, 1, 0, 0, 0, 17, 0, 16, 0, 1, 0, 16, 0, 1, 0, 0])
+    with pytest.raises(MacroError):
+        decode_macros(raw + bytes(4096 - len(raw)))

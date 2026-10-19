@@ -1,6 +1,8 @@
 """Which link is up right now, and how to open it."""
 from __future__ import annotations
 
+from contextlib import suppress
+
 import hid
 
 from .base import Link, LinkError
@@ -25,8 +27,12 @@ def open_link(kind: str) -> Link:
         return WiredLink(WinFeatureDevice(path))
     if kind == "radio":
         link = RadioLink(HidPacketDevice())
-        if not link.online():
-            link.close()
-            raise LinkError("dongle present but keyboard not connected")
+        try:
+            if not link.online():
+                raise LinkError("dongle present but keyboard not connected")
+        except BaseException:
+            with suppress(OSError):
+                link.close()
+            raise
         return link
     raise LinkError(f"unknown link kind {kind!r}")

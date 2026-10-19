@@ -1,6 +1,6 @@
 import pytest
 
-from engine.links.base import NotSupported, SizeGuardError
+from engine.links.base import LinkError, NotSupported, SizeGuardError
 from engine.links.radio import RadioLink, make_packet
 from tests.fakes import FakeKeyboard
 
@@ -34,8 +34,9 @@ def test_writes(kb, fixture_blocks):
     assert kb.state.config == bytes(cfg)
     link.write_layer(1, bytes(504))
     assert kb.state.layers[1] == bytes(504)
-    link.write_macros(bytes([7]) * 4096)
-    assert kb.state.macros == bytes([7]) * 4096
+    macros = b"".join(bytes([i]) * 512 for i in range(8))
+    link.write_macros(macros)
+    assert kb.state.macros == macros
     link.write_palette(bytes(483))
     assert kb.state.palette == bytes(483)
 
@@ -52,3 +53,95 @@ def test_unsupported_reads_and_guards(kb):
         link.read_layer(0)
     with pytest.raises(SizeGuardError):
         link.write_palette(bytes(484))
+
+
+class StaleAckDongle:
+    """Loses packet 2 of a layer write and answers with an ack for packet 1 instead."""
+
+    def __init__(self, inner, always=False):
+        self.inner, self.always, self.pending, self.fired = inner, always, [], False
+
+    def write(self, p):
+        if p[1] == 0x01 and p[3] == 2 and (self.always or not self.fired):
+            self.fired = True
+            self.pending.append(make_packet(0x01, p[2], 1, 0, bytes(14)))
+            return
+        self.inner.write(p)
+
+    def read(self, timeout_ms):
+        return self.pending.pop(0) if self.pending else self.inner.read(timeout_ms)
+
+    def close(self):
+        self.inner.close()
+
+
+def test_stale_ack_is_not_accepted(kb):
+    link = RadioLink(StaleAckDongle(kb.packet_device()), timeout_ms=1)
+    data = (bytes(range(256)) * 2)[:504]
+    link.write_layer(0, data)
+    assert kb.state.layers[0] == data
+
+
+def test_persistent_stale_acks_raise(kb):
+    link = RadioLink(StaleAckDongle(kb.packet_device(), always=True), timeout_ms=1)
+    with pytest.raises(LinkError):
+        link.write_layer(0, bytes(504))
+
+
+class BadIndexDongle:
+    def __init__(self):
+        self.pending = []
+
+    def write(self, p):
+        self.pending = [bytes([0x13, p[1], 2, 5, 1, 0xAA]) + bytes(14)]
+
+    def read(self, timeout_ms):
+        return self.pending.pop(0) if self.pending else None
+
+    def close(self):
+        pass
+
+
+def test_read_reply_index_out_of_range_raises_linkerror():
+    link = RadioLink(BadIndexDongle(), retries=1, timeout_ms=1)
+    with pytest.raises(LinkError):
+        link.read_config()
+
+
+def test_open_link_closes_handle_when_online_fails(monkeypatch):
+    from engine.links import detect
+
+    class Boom:
+        closed = False
+
+        def write(self, p):
+            raise LinkError("unplugged")
+
+        def read(self, t):
+            return None
+
+        def close(self):
+            Boom.closed = True
+
+    monkeypatch.setattr(detect, "HidPacketDevice", Boom)
+    with pytest.raises(LinkError):
+        detect.open_link("radio")
+    assert Boom.closed
+
+
+def test_hid_errors_become_linkerror(monkeypatch):
+    from engine.links import radio
+
+    class H:
+        def open_path(self, p): ...
+        def write(self, b): raise OSError("gone")
+        def read(self, n, t): raise OSError("gone")
+        def close(self): ...
+
+    monkeypatch.setattr(radio.hid, "enumerate", lambda *a: [{"path": b"x", "usage_page": 0xFF02}])
+    monkeypatch.setattr(radio.hid, "device", lambda: H())
+    dev = radio.HidPacketDevice()
+    with pytest.raises(LinkError):
+        dev.write(bytes(20))
+    with pytest.raises(LinkError):
+        dev.read(1)

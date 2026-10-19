@@ -1,6 +1,7 @@
 """2.4G link through the dongle: 20-byte report 0x13 packets with a sum checksum."""
 from __future__ import annotations
 
+import time
 from typing import Protocol
 
 import hid
@@ -23,18 +24,31 @@ class HidPacketDevice:
         if path is None:
             raise LinkError("2.4G dongle not found")
         self._h = hid.device()
-        self._h.open_path(path)
+        try:
+            self._h.open_path(path)
+        except OSError as e:
+            raise LinkError(f"cannot open dongle: {e}") from e
 
     def write(self, packet: bytes) -> None:
-        if self._h.write(list(packet)) < 0:
+        try:
+            n = self._h.write(list(packet))
+        except OSError as e:
+            raise LinkError(f"dongle write failed: {e}") from e
+        if n < 0:
             raise LinkError("dongle write failed")
 
     def read(self, timeout_ms: int) -> bytes | None:
-        r = self._h.read(Radio.PACKET_SIZE, timeout_ms)
+        try:
+            r = self._h.read(Radio.PACKET_SIZE, timeout_ms)
+        except OSError as e:
+            raise LinkError(f"dongle read failed: {e}") from e
         return bytes(r) if r else None
 
     def close(self) -> None:
-        self._h.close()
+        try:
+            self._h.close()
+        except OSError as e:
+            raise LinkError(f"dongle close failed: {e}") from e
 
 
 def make_packet(cmd: int, total: int, index: int, sub: int, data: bytes) -> bytes:
@@ -57,16 +71,22 @@ class RadioLink(Link):
             raise LinkError(f"radio command {cmd:#x} is not whitelisted")
 
     def _drain(self) -> None:
-        while self.dev.read(0):
+        deadline = time.monotonic() + max(self.timeout_ms, 100) / 1000
+        while time.monotonic() < deadline and self.dev.read(0):
             pass
 
-    def _recv(self, cmd: int) -> bytes | None:
+    def _recv(self, cmd: int, ack: tuple[int, int] | None = None) -> bytes | None:
+        """Next reply to cmd; with ack=(total, index), only a matching write ack counts."""
+        deadline = time.monotonic() + self.timeout_ms / 1000
         while True:
             r = self.dev.read(self.timeout_ms)
             if r is None:
                 return None
             if r[0] == Radio.REPORT_ID and (r[1] & 0x7F) == cmd:
-                return r
+                if ack is None or (not r[1] & 0x80 and (r[2], r[3]) == ack):
+                    return r
+            if time.monotonic() >= deadline:
+                return None
 
     def _read(self, cmd: int, size: int) -> bytes:
         self._check(cmd)
@@ -75,11 +95,16 @@ class RadioLink(Link):
         for _ in range(self.retries + 3):
             self._drain()
             self.dev.write(make_packet(cmd, 1, 0, 0, b""))
-            while True:
+            for _ in range(0x80):
                 r = self._recv(cmd)
                 if r is None or (r[1] & 0x80):
                     break
-                total = r[2] & 0x7F
+                n = r[2] & 0x7F
+                if r[3] >= n or (total and n != total):
+                    got.clear()
+                    total = None
+                    break
+                total = n
                 got[r[3]] = r[5:5 + min(r[4] & 0x0F, Radio.CHUNK)]
                 if r[3] + 1 >= total:
                     break
@@ -96,7 +121,7 @@ class RadioLink(Link):
             for _ in range(self.retries):
                 self._drain()
                 self.dev.write(make_packet(cmd, len(chunks), i, sub, c))
-                if self._recv(cmd):
+                if self._recv(cmd, ack=(len(chunks), i)):
                     break
             else:
                 raise LinkError(f"no ack for {cmd:#x} packet {i}")

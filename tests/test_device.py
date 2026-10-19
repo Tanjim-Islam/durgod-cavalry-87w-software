@@ -180,15 +180,15 @@ def test_replay_runs_once(env):
     kb.fail_on_write = True
     with pytest.raises(LinkError):
         dm.apply(set_palette)
-    assert ev.count("error") == 1
+    assert ev.count("error") == 0              # apply failures are raised, not evented
     clock.t += 5.1
     dm.poll()                                  # replay fails too
-    assert dm.pending is None and dm.link is None and ev.count("error") == 2
+    assert dm.pending is None and dm.link is None and ev.count("error") == 1
     kb.fail_on_write = False
     n = len(kb.sent)
     clock.t += 5.1
     dm.poll()
-    assert dm.link is not None and ev.count("error") == 2
+    assert dm.link is not None and ev.count("error") == 1
     assert all(p[1] >= 0x80 for p in kb.sent[n:])
     assert kb.state.palette != bytes(483)
 
@@ -218,7 +218,7 @@ def test_verify_mismatch_keeps_link_and_no_pending(env, monkeypatch):
     monkeypatch.setattr(dm.link, "read_block", lambda name: b"wrong")
     with pytest.raises(VerifyError):
         dm.apply(set_sleep(0))
-    assert dm.link is not None and dm.pending is None and ev.count("error") == 1
+    assert dm.link is not None and dm.pending is None and ev.count("error") == 0
 
 
 def test_bad_subscriber_cannot_break_manager(env):
@@ -247,3 +247,335 @@ def test_worker_runs_calls(env):
         assert Config(out.config).sleep == 0
     finally:
         w.stop()
+
+
+# ---------- final fix wave
+
+def payloads(dm):
+    got = []
+    dm.subscribe(lambda n, p: got.append((n, p)))
+    return got
+
+
+def reconnect(dm, clock, state, kind="wired"):
+    state["kind"] = None
+    dm.poll()
+    state["kind"] = kind
+    connect(dm, clock)
+
+
+def test_corrupt_mirror_at_startup_is_set_aside(tmp_path):
+    (tmp_path / "mirror.json").write_text('{"config": "5a')
+    dm = DeviceManager(Store(tmp_path), detect=lambda: None, open_link=None)
+    assert dm.snapshot is None
+    assert list(tmp_path.glob("mirror.corrupt-*.json"))
+
+
+def test_radio_connect_with_corrupt_mirror_is_partial(env):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    (st.root / "mirror.json").write_text("garbage")
+    state["kind"] = "radio"
+    connect(dm, clock)
+    assert dm.link is not None and dm.partial is True
+    assert list(st.root.glob("mirror.corrupt-*.json"))
+
+
+def test_corrupt_factory_is_retaken_on_next_wired_connect(env):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    (st.root / "backups" / "factory.json").write_text("{")
+    reconnect(dm, clock, state)
+    assert st.has_factory()
+    assert st.load_backup("factory") == kb.state
+
+
+def test_poll_mirror_save_failure_reported_once(env, monkeypatch):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+
+    def boom(s):
+        raise OSError("disk full")
+    monkeypatch.setattr(st, "save_mirror", boom)
+    for v in (3, 4, 5):
+        kb.state.config = set_sleep(v)(kb.state.copy()).config
+        dm.poll()
+        dm.poll()
+    assert ev.count("error") == 1
+    assert Config(dm.snapshot.config).sleep == 5
+
+
+def go_radio(kb, dm, clock, state):
+    kb.link_byte = 1
+    kb.state.config = kb._own_link_byte(kb.state.config)
+    state["kind"] = "radio"
+    connect(dm, clock)
+
+
+def test_restore_wired_snapshot_over_radio_keeps_link_byte(env):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    wired = dm.snapshot.copy()
+    assert wired.config[0x0E] == 0
+    go_radio(kb, dm, clock, state)
+    n = len(kb.sent)
+    dm.apply(lambda _: wired.copy())             # only the link byte differs: nothing to write
+    assert all(p[1] == 0x44 for p in kb.sent[n:])
+    changed = wired.copy()
+    changed.config = set_sleep(9)(wired.copy()).config
+    out = dm.apply(lambda _: changed.copy())     # verify reads back 0x0E = 1
+    assert kb.state.config[0x0E] == 1 and out.config[0x0E] == 1
+    assert Config(kb.state.config).sleep == 9
+
+
+def flaky_reads(dm, mutate):
+    real = dm._open
+
+    def opener(k):
+        link = real(k)
+        orig = link.read_all
+
+        def read_all():
+            s = orig()
+            mutate(s)
+            return s
+        link.read_all = read_all
+        return link
+    dm._open = opener
+    return real
+
+
+def test_factory_needs_two_identical_reads(env):
+    kb, st, clock, state, dm, ev = env
+    n = iter(range(1000))
+    real = flaky_reads(dm, lambda s: setattr(s, "palette", bytes([next(n) % 256]) * 483))
+    connect(dm, clock)
+    assert dm.link is not None and not st.has_factory() and ev.count("error") == 1
+    with pytest.raises(NotReady):
+        dm.apply(set_sleep(0))                   # never write without a factory snapshot
+    assert Config(kb.state.config).sleep != 0
+    dm._open = real
+    reconnect(dm, clock, state)
+    assert st.has_factory() and st.load_backup("factory") == kb.state
+
+
+def test_apply_takes_missing_factory_first(env):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    (st.root / "backups" / "factory.json").unlink()
+    before = kb.state.copy()
+    dm.apply(set_sleep(0))
+    assert st.load_backup("factory") == before
+
+
+def test_asleep_radio_keyboard_is_quiet(env):
+    kb, st, clock, state, dm, ev = env
+    got = payloads(dm)
+    connect(dm, clock)                           # wired once: mirror exists
+    kb.asleep = True
+    state["kind"] = "radio"
+    for _ in range(3):
+        connect(dm, clock)
+    assert dm.link is None and "error" not in ev
+    assert got.count(("link", {"kind": "radio", "online": False})) == 1
+    kb.asleep = False
+    clock.t += 5.1
+    dm.poll()
+    assert dm.link is not None and dm.asleep is False
+
+
+def test_radio_keyboard_falling_asleep_drops_quietly(env):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    state["kind"] = "radio"
+    connect(dm, clock)
+    assert dm.link is not None
+    got = payloads(dm)
+    kb.asleep = True
+    n = len(kb.sent)
+    dm.poll()
+    assert [p[1] for p in kb.sent[n:]] == [0x07]   # one probe, no full config read
+    assert dm.link is None and "error" not in ev
+    assert ("link", {"kind": "radio", "online": False}) in got and ("state", {}) in got
+
+
+def remap(s):
+    s.layers[0] = bytes(504)
+    return s
+
+
+def set_brightness(v):
+    def m(s):
+        c = Config(s.config)
+        c.set_brightness(v)
+        s.config = c.to_bytes()
+        return s
+    return m
+
+
+def rolling(st):
+    return [i for i in st.list_backups() if not i.factory]
+
+
+def test_config_tweaks_do_not_push_out_the_keymap_backup(tmp_path, fixture_blocks):
+    kb = FakeKeyboard(fixture_blocks)
+    st, clock = Store(tmp_path, keep=20), Clock()
+    dm = DeviceManager(st, detect=lambda: "wired",
+                       open_link=lambda k: WiredLink(kb.feature_device()), clock=clock)
+    connect(dm, clock)
+    pre_keymap = kb.state.copy()
+    dm.apply(remap)
+    for i in range(25):
+        clock.t += 2
+        dm.apply(set_brightness(i % 4 + 1 if i % 2 else 0))
+    assert len(rolling(st)) == 2
+    assert any(st.load_backup(i.name) == pre_keymap for i in rolling(st))
+    clock.t += 61
+    dm.apply(set_brightness(2))
+    assert len(rolling(st)) == 3
+
+
+def test_block_changes_always_back_up(env):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    dm.apply(remap)
+    dm.apply(set_palette)
+    assert len(rolling(st)) == 2
+
+
+def test_no_duplicate_backup_when_base_unchanged(env, monkeypatch):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    orig_layer = kb.state.layers[0]
+    with monkeypatch.context() as mp:
+        mp.setattr(dm.link, "read_block", lambda name: b"wrong")
+        with pytest.raises(VerifyError):
+            dm.apply(remap)
+    kb.state.layers[0] = orig_layer              # the keyboard did not keep the write
+    dm.apply(remap)
+    assert len(rolling(st)) == 1
+
+
+def test_wired_connect_reports_mirror_mismatch(env):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    got = payloads(dm)
+    kb.state.layers[2] = bytes([0, 0, 0, 4]) * 126  # changed by another app while we were away
+    kb.state.config = set_sleep(1)(kb.state.copy()).config
+    reconnect(dm, clock, state)
+    names = [n for n, _ in got]
+    assert ("mirror_mismatch", {"blocks": ["layer2"]}) in got
+    assert names.index("mirror_mismatch") < len(names) - 1 - names[::-1].index("state")
+    assert st.load_mirror() == kb.state
+
+
+def test_no_mismatch_event_when_only_config_differs(env):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    kb.state.config = set_sleep(1)(kb.state.copy()).config
+    reconnect(dm, clock, state)
+    assert "mirror_mismatch" not in ev
+
+
+def test_state_event_on_drop(env):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    ev.clear()
+    kb.connected = False
+    dm.poll()
+    assert dm.link is None and "state" in ev
+    kb.connected = True
+    clock.t += 5.1
+    dm.poll()
+    assert dm.link is not None
+    ev.clear()
+    state["kind"] = None
+    dm.poll()
+    assert "state" in ev
+
+
+def test_apply_failures_raise_without_error_events(env, monkeypatch):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    with monkeypatch.context() as mp:
+        mp.setattr(dm.link, "read_block", lambda name: b"wrong")
+        with pytest.raises(VerifyError):
+            dm.apply(set_sleep(0))
+    kb.fail_on_write = True
+    with pytest.raises(LinkError, match="retry"):
+        dm.apply(set_sleep(1))
+    assert "error" not in ev and "state" in ev  # the drop is still announced
+
+
+def test_failed_replay_emits_state(env):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    kb.fail_on_write = True
+    with pytest.raises(LinkError):
+        dm.apply(set_palette)
+    ev.clear()
+    clock.t += 5.1
+    dm.poll()
+    assert dm.link is None and ev.count("error") == 1 and ev[-1] == "state"
+
+
+def test_mirror_save_failure_after_write_is_a_warning(env, monkeypatch):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+
+    def boom(s):
+        raise OSError("disk full")
+    monkeypatch.setattr(st, "save_mirror", boom)
+    out = dm.apply(set_sleep(0))
+    assert Config(out.config).sleep == 0 and Config(dm.snapshot.config).sleep == 0
+    assert "local copy" in dm.last_warning
+    assert "error" not in ev
+    monkeypatch.undo()
+    dm.apply(set_sleep(2))
+    assert dm.last_warning is None
+
+
+def test_mirror_save_failure_after_replay_is_one_error(env, monkeypatch):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    kb.fail_on_write = True
+    with pytest.raises(LinkError):
+        dm.apply(set_palette)
+    kb.fail_on_write = False
+    got = payloads(dm)
+    real = st.save_mirror
+    calls = []
+
+    def save(s):
+        calls.append(1)
+        if len(calls) > 1:                       # connect saves fine, the replay save fails
+            raise OSError("disk full")
+        real(s)
+    monkeypatch.setattr(st, "save_mirror", save)
+    clock.t += 5.1
+    dm.poll()
+    assert kb.state.palette == bytes(483) and dm.snapshot.palette == bytes(483)
+    errors = [p["message"] for n, p in got if n == "error"]
+    assert errors == ["Saved to keyboard, but the local copy couldn't be saved"]
+    assert dm.link is not None
+
+
+def test_worker_logs_poll_tracebacks(env, caplog):
+    import time
+    from engine.device import Worker
+    kb, st, clock, state, dm, ev = env
+
+    def bad_poll():
+        raise RuntimeError("bug")
+    dm.poll = bad_poll
+    w = Worker(dm, poll_s=0.01)
+    with caplog.at_level("ERROR", logger="cavalry"):
+        w.start()
+        try:
+            deadline = time.monotonic() + 5
+            while not caplog.records and time.monotonic() < deadline:
+                time.sleep(0.01)
+        finally:
+            w.stop()
+    rec = [r for r in caplog.records if r.name == "cavalry"]
+    assert rec and rec[0].exc_info and "error" in ev

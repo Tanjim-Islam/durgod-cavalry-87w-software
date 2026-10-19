@@ -1,7 +1,20 @@
-"""Methods the web UI calls. Every method returns JSON-able data or raises ApiError."""
+"""Methods the web UI calls. Every method returns JSON-able data or raises ApiError.
+
+Events: Api.subscribe(cb) makes the device thread call cb(name, payload) for each of these.
+- "state", {}: keyboard state or connection changed (connect, drop, write, Fn change); call get_state.
+- "link", {"kind": "wired" | "radio" | None}: the detected link changed.
+- "link", {"kind": "radio", "online": False}: dongle present but the keyboard is asleep or off.
+  A status, not an error.
+- "mirror_mismatch", {"blocks": [...]}: on cable connect, these blocks differed from the local
+  copy (changed by something else while the app was away).
+- "error", {"message": str}: a background failure (connecting, polling, replaying an interrupted
+  write, saving local files).
+A failing Api call is reported only by raising ApiError, never by an "error" event.
+"""
 from __future__ import annotations
 
 import functools
+import logging
 from pathlib import Path
 
 from .codec.colors import (ColorError, decode_key_colors, decode_palette, encode_key_colors,
@@ -16,9 +29,13 @@ from .codec.snapshot import Snapshot, SnapshotError
 from .device import NotReady, VerifyError
 from .links.base import LinkError, NotSupported, SizeGuardError
 from .protocol import LAYER_COUNT, LAYER_SLOTS, PALETTE_GROUPS
-from .store import Settings, Store, StoreError
+from .store import ProfileExists, Settings, Store, StoreError
+
+log = logging.getLogger("cavalry")
 
 _THEMES = ("dark", "light", "system")
+_EXPECTED = (TimeoutError, LinkError, NotReady, StoreError, SnapshotError, ConfigError, KeymapError,
+             MacroError, ColorError, SizeGuardError, OSError)
 
 
 class ApiError(Exception):
@@ -31,7 +48,7 @@ CABLE_WARNING = "Saved. This key works over 2.4G but won't send over the cable (
 def _message(e: Exception) -> str:
     """User-readable text for any failure that can come out of the engine."""
     if isinstance(e, TimeoutError):  # also what Future.result raises; must precede OSError
-        return "The keyboard did not respond in time. Check the connection and try again."
+        return "The keyboard is busy; the change may still apply. Refresh before retrying."
     if isinstance(e, VerifyError):
         return f"The keyboard did not accept the change ({e})"
     if isinstance(e, NotSupported):
@@ -58,8 +75,37 @@ def _guarded(fn):
         except ApiError:
             raise
         except Exception as e:
+            if not isinstance(e, _EXPECTED):
+                log.exception("unexpected error in %s", fn.__name__)
             raise ApiError(_message(e)) from e
     return wrapper
+
+
+def _warn(d: dict, msg: str | None) -> dict:
+    if msg:
+        d["warning"] = f"{d['warning']} {msg}" if d.get("warning") else msg
+    return d
+
+
+def _macros(raw: bytes) -> list:
+    try:
+        return decode_macros(raw)
+    except MacroError as e:
+        raise ApiError(f"The keyboard's macro memory can't be read ({e}). "
+                       "Clear all macros (clear_macros) to start fresh.") from e
+
+
+def _lighting(c: Config) -> dict:
+    try:
+        fields = {"brightness": c.brightness(), "speed": c.speed(), "color": c.color(),
+                  "direction": c.direction()}
+    except ConfigError:  # effect byte the app doesn't know: show it, don't guess the rest
+        fields = dict.fromkeys(("brightness", "speed", "color", "direction"))
+    return {"effect": c.effect, **fields, "keep_lights_on": c.sleep == 0}
+
+
+def _settings(c: Config) -> dict:
+    return {"win_mac": c.win_mac, "sleep": c.sleep, "debounce": c.debounce}
 
 
 def _int(name: str, v, lo: int, hi: int) -> int:
@@ -98,8 +144,22 @@ class Api:
 
     # ---------- helpers
     def _apply(self, mutator) -> dict:
-        self.w.call(self.m.apply, mutator).result(timeout=self.TIMEOUT_S)
-        return self.get_state()
+        def run():
+            self.m.apply(mutator)
+            return self.m.last_warning
+        warning = self.w.call(run).result(timeout=self.TIMEOUT_S)
+        try:  # the keyboard is written by now: never report this call as failed
+            state = self.get_state()
+        except Exception as e:
+            log.exception("state refresh after a write failed")
+            return {"warning": f"Saved to the keyboard, but the view couldn't refresh ({e}). "
+                               "Refresh to see it."}
+        return _warn(state, warning)
+
+    @_guarded
+    def subscribe(self, cb) -> None:
+        """cb(name, payload) for every device event; see the module docstring."""
+        self.m.subscribe(cb)
 
     def _factory(self) -> Snapshot | None:
         return self.store.load_backup("factory") if self.store.has_factory() else None
@@ -109,22 +169,27 @@ class Api:
     def get_state(self) -> dict:
         s, m = self.m.snapshot, self.m
         out = {"connected": m.link is not None, "link": m.kind, "partial": m.partial,
+               "asleep": m.asleep,
                "effects": [{"id": i, "name": n} for i, n in EFFECTS],
                "key_names": {str(k): v for k, v in KEY_SLOTS.items()}}
         if s is None:
             return out
-        c = Config(s.config)
-        try:
-            fields = {"brightness": c.brightness(), "speed": c.speed(), "color": c.color(),
-                      "direction": c.direction()}
-        except ConfigError:  # effect byte the app doesn't know: show it, don't guess the rest
-            fields = dict.fromkeys(("brightness", "speed", "color", "direction"))
-        out["lighting"] = {"effect": c.effect, **fields, "keep_lights_on": c.sleep == 0}
-        out["settings"] = {"win_mac": c.win_mac, "sleep": c.sleep, "debounce": c.debounce}
-        out["layers"] = [[action_to_dict(a) for a in decode_layer(x)] for x in s.layers]
-        out["macros"] = [macro_to_dict(x) for x in decode_macros(s.macros)]
-        out["key_colors"] = decode_key_colors(s.key_colors)
-        out["palette"] = decode_palette(s.palette)
+
+        def section(name: str, fn) -> None:
+            """One unreadable block must not hide the others."""
+            try:
+                out[name] = fn()
+            except Exception as e:
+                log.warning("cannot decode %s: %s", name, e)
+                out[name] = None
+                out[f"{name}_error"] = f"Couldn't read {name.replace('_', ' ')}: {e}"
+
+        section("lighting", lambda: _lighting(Config(s.config)))
+        section("settings", lambda: _settings(Config(s.config)))
+        section("layers", lambda: [[action_to_dict(a) for a in decode_layer(x)] for x in s.layers])
+        section("macros", lambda: [macro_to_dict(x) for x in decode_macros(s.macros)])
+        section("key_colors", lambda: decode_key_colors(s.key_colors))
+        section("palette", lambda: decode_palette(s.palette))
         return out
 
     # ---------- lighting and settings
@@ -187,8 +252,12 @@ class Api:
         return self.set_settings(sleep=0 if on else (default or 0x0C))
 
     # ---------- keys
-    def _set_slot(self, layer: int, slot: int, action):
+    def _set_slot(self, layer: int, slot: int, action, check_macro: bool = False):
         def m(s):
+            if check_macro and isinstance(action, MacroRef):
+                count = len(_macros(s.macros))
+                if action.index >= count:
+                    raise ApiError(f"No macro number {action.index} (the keyboard has {count})")
             acts = decode_layer(s.layers[layer])
             acts[slot] = action
             s.layers[layer] = encode_layer(acts)
@@ -199,10 +268,8 @@ class Api:
     def remap_key(self, layer: int, slot: int, action: dict):
         _position(layer, slot)
         a = action_from_dict(action)
-        state = self._set_slot(layer, slot, a)
-        if wired_unsafe(a):
-            state["warning"] = CABLE_WARNING
-        return state
+        state = self._set_slot(layer, slot, a, check_macro=True)
+        return _warn(state, CABLE_WARNING if wired_unsafe(a) else None)
 
     @_guarded
     def reset_key(self, layer: int, slot: int):
@@ -237,7 +304,7 @@ class Api:
         result = {}
 
         def m(s):
-            ms = decode_macros(s.macros)
+            ms = _macros(s.macros)
             if index is None:
                 ms.append(new)
                 result["i"] = len(ms) - 1
@@ -247,8 +314,9 @@ class Api:
                 result["i"] = index
             s.macros = encode_macros(ms)
             return s
-        self._apply(m)
-        return {"index": result["i"], "warning": CABLE_WARNING if unsafe else None}
+        state = self._apply(m)
+        warning = _warn(_warn({}, state.get("warning")), CABLE_WARNING if unsafe else None)
+        return {"index": result["i"], "warning": warning.get("warning")}
 
     @_guarded
     def delete_macro(self, index: int):
@@ -256,7 +324,7 @@ class Api:
             raise ApiError(f"No macro number {index!r}")
 
         def m(s):
-            ms = decode_macros(s.macros)
+            ms = _macros(s.macros)
             _check_index(index, len(ms), "macro")
             del ms[index]
             s.macros = encode_macros(ms)
@@ -270,6 +338,19 @@ class Api:
                     else:
                         fixed.append(a)
                 s.layers[li] = encode_layer(fixed)
+            return s
+        return self._apply(m)
+
+    @_guarded
+    def clear_macros(self):
+        """Erase every macro (also unreadable ones) and unbind keys that pointed to one."""
+        def m(s):
+            s.macros = encode_macros([])
+            for li in range(LAYER_COUNT):
+                acts = decode_layer(s.layers[li])
+                if any(isinstance(a, MacroRef) for a in acts):
+                    s.layers[li] = encode_layer(
+                        [NoAction() if isinstance(a, MacroRef) else a for a in acts])
             return s
         return self._apply(m)
 
@@ -322,9 +403,13 @@ class Api:
         self.store.export_profile(name, Path(path))
 
     @_guarded
-    def import_profile(self, path: str):
+    def import_profile(self, path: str, overwrite: bool = False):
+        if type(overwrite) is not bool:
+            raise ApiError("overwrite must be true or false")
         try:
-            return self.store.import_profile(Path(path))
+            return self.store.import_profile(Path(path), overwrite=overwrite)
+        except ProfileExists as e:
+            raise ApiError(f"Not imported: {e}. Import again with overwrite to replace it.") from e
         except (StoreError, KeyError, ValueError) as e:
             raise ApiError(f"Not a valid profile file: {e}") from e
 

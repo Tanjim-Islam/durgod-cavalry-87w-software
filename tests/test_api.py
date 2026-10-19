@@ -5,7 +5,7 @@ import pytest
 
 from engine.api import Api, ApiError
 from engine.codec.config import OFF_EFFECT, Config
-from engine.codec.keymap import Consumer, Key, MacroRef, NoAction, decode_layer
+from engine.codec.keymap import Consumer, Key, MacroRef, NoAction, decode_layer, encode_layer
 from engine.codec.macro import decode_macros
 from engine.device import DeviceManager
 from engine.links.wired import WiredLink
@@ -216,6 +216,7 @@ EV = {"kind": "key", "code": 1}
     lambda a: a.remap_key(0, 0, {"type": "key"}),
     lambda a: a.remap_key(0, 0, "key"),
     lambda a: a.remap_key(0, 0, None),
+    lambda a: a.remap_key(0, 0, {"type": "macro", "index": 0}),
     lambda a: a.reset_key(0, 126),
     lambda a: a.reset_key(9, 0),
     lambda a: a.reset_layer(4),
@@ -339,7 +340,7 @@ def test_timeout_becomes_api_error(tmp_path, fixture_blocks):
     a.TIMEOUT_S = 0.01
     with pytest.raises(ApiError) as ei:
         a.set_lighting(brightness=1)
-    assert "respond" in str(ei.value)
+    assert "busy" in str(ei.value) and "Refresh" in str(ei.value)
 
 
 def test_unknown_effect_byte(api):
@@ -357,3 +358,123 @@ def test_unknown_effect_byte(api):
         a.set_lighting(brightness=1)
     a.set_lighting(effect=1, brightness=1)
     assert a.get_state()["lighting"]["brightness"] == 1
+
+
+# ---------- final fix wave
+
+BAD_MACROS = bytes([6, 0]) + bytes(4094)
+
+
+def test_state_sections_fail_independently(api):
+    a, kb = api
+    a.m.snapshot.macros = BAD_MACROS
+    s = a.get_state()
+    assert s["macros"] is None and s["macros_error"]
+    assert len(s["layers"]) == 4 and s["lighting"]["effect"] == 1 and len(s["palette"]) == 23
+    assert "layers_error" not in s
+    json.dumps(s)
+
+
+def test_successful_write_is_not_reported_as_failed(api, monkeypatch):
+    a, kb = api
+
+    def broken():
+        raise ApiError("view broke")
+    monkeypatch.setattr(a, "get_state", broken)
+    res = a.set_lighting(brightness=1)
+    assert Config(kb.state.config).brightness() == 1
+    assert "view broke" in res["warning"]
+
+
+def test_undecodable_macros_point_to_clear_macros(api):
+    a, kb = api
+    acts = decode_layer(kb.state.layers[0])
+    acts[10] = MacroRef(0)
+    kb.state.layers[0] = encode_layer(acts)
+    kb.state.macros = BAD_MACROS
+    with pytest.raises(ApiError, match="Clear all macros"):
+        a.save_macro(None, {"name": "x", "events": tap(4)})
+    with pytest.raises(ApiError, match="Clear all macros"):
+        a.delete_macro(0)
+    s = a.clear_macros()
+    assert s["macros"] == [] and decode_macros(kb.state.macros) == []
+    assert decode_layer(kb.state.layers[0])[10] == NoAction()
+    assert a.save_macro(None, {"name": "x", "events": tap(4)})["index"] == 0
+
+
+def test_remap_to_missing_macro_is_refused(api):
+    a, kb = api
+    before = list(kb.state.layers)
+    with pytest.raises(ApiError, match="macro"):
+        a.remap_key(0, 10, {"type": "macro", "index": 0})
+    a.save_macro(None, {"name": "A", "events": tap(4)})
+    with pytest.raises(ApiError):
+        a.remap_key(0, 10, {"type": "macro", "index": 1})
+    assert kb.state.layers == before
+    a.remap_key(0, 10, {"type": "macro", "index": 0})
+    assert decode_layer(kb.state.layers[0])[10] == MacroRef(0)
+
+
+def test_import_profile_overwrite(api, tmp_path):
+    a, kb = api
+    a.save_profile("One")
+    out = tmp_path / "one.json"
+    a.export_profile("One", str(out))
+    with pytest.raises(ApiError, match="already exists"):
+        a.import_profile(str(out))
+    assert a.import_profile(str(out), overwrite=True) == "One"
+
+
+def test_subscribe_forwards_manager_events(api):
+    a, kb = api
+    got = []
+    a.subscribe(lambda n, p: got.append((n, p)))
+    kb.connected = False
+    a.m.poll()
+    assert ("state", {}) in got and any(n == "error" for n, _ in got)
+    assert a.get_state()["connected"] is False
+
+
+def test_api_write_failure_raises_and_sends_no_error_event(api):
+    a, kb = api
+    got = []
+    a.subscribe(lambda n, p: got.append(n))
+    kb.fail_on_write = True
+    with pytest.raises(ApiError, match="retry"):
+        a.set_lighting(brightness=1)
+    assert "error" not in got
+
+
+def test_mirror_save_failure_still_returns_state_with_warning(api, monkeypatch):
+    a, kb = api
+
+    def boom(s):
+        raise OSError("disk full")
+    monkeypatch.setattr(a.store, "save_mirror", boom)
+    s = a.set_lighting(brightness=1)
+    assert s["lighting"]["brightness"] == 1 and "local copy" in s["warning"]
+    r = a.remap_key(0, 45, {"type": "key", "hid": 0x73})
+    assert "local copy" in r["warning"] and "cable" in r["warning"]
+    m = a.save_macro(None, {"name": "x", "events": tap(4)})
+    assert "local copy" in m["warning"]
+
+
+def test_unexpected_errors_are_logged_with_traceback(api, monkeypatch, caplog):
+    a, kb = api
+
+    def bug(mutator):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(a.m, "apply", bug)
+    with caplog.at_level("ERROR", logger="cavalry"):
+        with pytest.raises(ApiError, match="Unexpected"):
+            a.set_lighting(brightness=1)
+        with pytest.raises(ApiError):
+            a.set_lighting(brightness=9)          # expected: not logged
+    rec = [r for r in caplog.records if r.name == "cavalry"]
+    assert len(rec) == 1 and rec[0].exc_info
+
+
+def test_event_contract_is_documented():
+    import engine.api
+    for name in ("state", "link", "error", "mirror_mismatch", "online"):
+        assert name in engine.api.__doc__

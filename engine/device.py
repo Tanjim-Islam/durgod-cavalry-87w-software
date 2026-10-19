@@ -10,11 +10,25 @@ from typing import Callable
 from .codec.snapshot import Snapshot
 from .links.base import Link, LinkError, NotSupported
 from .protocol import MODEL_ID
-from .store import Store, StoreError
+from .store import Store
 
 
 class NotReady(RuntimeError):
     pass
+
+
+class VerifyError(LinkError):
+    pass
+
+
+def _merge(base: Snapshot, target: Snapshot, blocks: list[str]) -> Snapshot:
+    out = base.copy()
+    for name in blocks:
+        if name.startswith("layer"):
+            out.layers[int(name[-1])] = target.block(name)
+        else:
+            setattr(out, name, target.block(name))
+    return out
 
 
 class DeviceManager:
@@ -27,6 +41,7 @@ class DeviceManager:
         self.snapshot: Snapshot | None = store.load_mirror()
         self.partial = False
         self.pending: Snapshot | None = None
+        self._pending_blocks: list[str] = []
         self._since = 0.0
         self._subs: list[Callable[[str, dict], None]] = []
 
@@ -35,8 +50,11 @@ class DeviceManager:
         self._subs.append(cb)
 
     def _emit(self, name: str, payload: dict | None = None) -> None:
-        for cb in self._subs:
-            cb(name, payload or {})
+        for cb in list(self._subs):
+            try:
+                cb(name, payload or {})
+            except Exception:
+                pass  # a bad subscriber must never break the device loop
 
     # ---------- connection
     def _drop(self) -> None:
@@ -47,6 +65,15 @@ class DeviceManager:
                 pass
         self.link = None
         self._since = self._clock()
+
+    def _abort(self, link: Link | None, message: str) -> None:
+        if link is not None:
+            try:
+                link.close()
+            except Exception:
+                pass
+        self._drop()
+        self._emit("error", {"message": message})
 
     def poll(self) -> None:
         kind = self._detect()
@@ -67,48 +94,63 @@ class DeviceManager:
             self._emit("error", {"message": f"Lost the keyboard: {e}"})
             return
         if self.snapshot and cfg != self.snapshot.config:
-            self.snapshot.config = cfg
-            self.store.save_mirror(self.snapshot)
+            snap = self.snapshot.copy()
+            snap.config = cfg
+            self.store.save_mirror(snap)
+            self.snapshot = snap
             self._emit("state")
 
     def _connect(self) -> None:
+        link = None
         try:
             link = self._open(self.kind)
             ident = link.identify()
-        except LinkError as e:
-            self._since = self._clock()
-            self._emit("error", {"message": str(e)})
+        except Exception as e:
+            self._abort(link, str(e))
             return
         if len(ident) < 6 or ident[5] != MODEL_ID:
-            link.close()
-            self._since = self._clock()
-            self._emit("error", {"message": f"Not a Cavalry 87W (model {ident.hex()})"})
+            self._abort(link, f"Not a Cavalry 87W (model {ident.hex()})")
             return
-        self.link = link
         try:
             if link.kind == "wired":
                 snap = link.read_all()
                 if not self.store.has_factory():
                     self.store.save_backup(snap, factory=True, label="first connection")
-                self.partial = False
+                partial = False
             else:
                 cfg = link.read_config()
                 mirror = self.store.load_mirror()
-                self.partial = mirror is None
-                snap = mirror
-                if snap:
+                partial = mirror is None
+                snap = None
+                if mirror:
+                    snap = mirror.copy()
                     snap.config = cfg
-            self.snapshot = snap
+                    snap.validate()
             if snap:
                 self.store.save_mirror(snap)
-            if self.pending is not None and not self.partial:
-                self.store.save_backup(snap, label="before retry")
-                self._write(self.pending, snap)
-        except (OSError, StoreError) as e:
-            self._drop()
-            self._emit("error", {"message": str(e)})
+        except Exception as e:
+            self._abort(link, str(e))
             return
+        self.link, self.snapshot, self.partial = link, snap, partial
+        if self.pending is not None and not partial:
+            if not self._replay(snap):
+                return
         self._emit("state")
+
+    def _replay(self, base: Snapshot) -> bool:
+        """Re-apply an interrupted batch once, on top of the freshly read state."""
+        target, blocks = self.pending, self._pending_blocks
+        self.pending, self._pending_blocks = None, []
+        final = _merge(base, target, blocks)
+        try:
+            self._push(final, base.changed_blocks(final))
+            self.store.save_mirror(final)
+        except Exception:
+            self._drop()
+            self._emit("error", {"message": "Changes could not be applied after reconnecting"})
+            return False
+        self.snapshot = final.copy()
+        return True
 
     # ---------- writes
     def _ready(self) -> None:
@@ -126,35 +168,39 @@ class DeviceManager:
             base.config = self.link.read_config()
         target = mutator(base.copy())
         target.validate()
-        if not base.changed_blocks(target):
+        blocks = base.changed_blocks(target)
+        if not blocks:
             return base
         self.store.save_backup(base, label="before change")
-        self._write(target, base)
+        self._write(target, blocks)
         return target
 
     def restore(self, s: Snapshot) -> Snapshot:
         return self.apply(lambda _: s.copy())
 
-    def _write(self, target: Snapshot, base: Snapshot | None = None) -> None:
-        base = base or self.snapshot
-        blocks = base.changed_blocks(target) if base else []
-        self.pending = target
+    def _push(self, target: Snapshot, blocks: list[str]) -> None:
+        for name in blocks:
+            self.link.write_block(name, target.block(name))
+        for name in blocks:
+            if self.link.kind == "wired" or name == "config":
+                if self.link.read_block(name) != target.block(name):
+                    raise VerifyError(f"verify failed for {name}")
+
+    def _write(self, target: Snapshot, blocks: list[str]) -> None:
         try:
-            for name in blocks:
-                self.link.write_block(name, target.block(name))
-            for name in blocks:
-                if self.link.kind == "wired" or name == "config":
-                    if self.link.read_block(name) != target.block(name):
-                        raise LinkError(f"verify failed for {name}")
-        except (LinkError, NotSupported) as e:
+            self._push(target, blocks)
+        except VerifyError:
+            self._emit("error", {"message": "Keyboard didn't accept the change"})
+            raise
+        except NotSupported as e:
+            self._emit("error", {"message": str(e)})
+            raise
+        except LinkError as e:
+            self.pending, self._pending_blocks = target, blocks
             self._drop()
             self._emit("error", {"message": f"Write interrupted, will retry when reconnected: {e}"})
             raise
-        except Exception:
-            self.pending = None
-            raise
-        self.pending = None
-        self.snapshot = target
+        self.snapshot = target.copy()
         self.store.save_mirror(target)
         self._emit("state")
 

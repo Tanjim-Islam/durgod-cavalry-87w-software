@@ -1,7 +1,9 @@
 import pytest
 
 from engine.codec.config import Config
-from engine.device import DeviceManager, NotReady
+from engine.codec.snapshot import SnapshotError
+from engine.device import DeviceManager, NotReady, VerifyError
+from engine.links.base import LinkError
 from engine.links.radio import RadioLink
 from engine.links.wired import WiredLink
 from engine.store import Store
@@ -103,7 +105,7 @@ def test_disconnect_mid_batch_marks_pending_then_reapplies(env):
     kb, st, clock, state, dm, ev = env
     connect(dm, clock)
     kb.fail_on_write = True
-    with pytest.raises(Exception):
+    with pytest.raises(LinkError):
         dm.apply(set_sleep(0))
     assert dm.pending is not None and dm.link is None
     kb.fail_on_write = False
@@ -133,17 +135,105 @@ def test_no_write_without_backup(env, monkeypatch):
     assert dm.pending is None
 
 
-def test_pending_replay_is_backed_up(env):
+def test_replay_adds_no_second_backup(env):
     kb, st, clock, state, dm, ev = env
     connect(dm, clock)
     kb.fail_on_write = True
-    with pytest.raises(Exception):
+    with pytest.raises(LinkError):
         dm.apply(set_sleep(0))
     kb.fail_on_write = False
     before = len(st.list_backups())
     clock.t += 5.1
     dm.poll()
-    assert len(st.list_backups()) == before + 1
+    assert len(st.list_backups()) == before
+
+
+def set_palette(s):
+    s.palette = bytes(483)
+    return s
+
+
+def test_replay_writes_only_batch_blocks(env):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    assert kb.state.palette != bytes(483)
+    kb.fail_on_write = True
+    with pytest.raises(LinkError):
+        dm.apply(set_palette)
+    kb.fail_on_write = False
+    c = Config(kb.state.config)               # changed on the keyboard while disconnected
+    c.sleep = 7
+    kb.state.config = c.to_bytes()
+    n = len(kb.sent)
+    clock.t += 5.1
+    dm.poll()
+    assert kb.state.palette == bytes(483)
+    assert Config(kb.state.config).sleep == 7
+    assert [p[1] for p in kb.sent[n:] if p[1] < 0x80] == [0x0A]
+    assert Config(dm.snapshot.config).sleep == 7 and dm.snapshot.palette == bytes(483)
+    assert dm.pending is None
+
+
+def test_replay_runs_once(env):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    kb.fail_on_write = True
+    with pytest.raises(LinkError):
+        dm.apply(set_palette)
+    assert ev.count("error") == 1
+    clock.t += 5.1
+    dm.poll()                                  # replay fails too
+    assert dm.pending is None and dm.link is None and ev.count("error") == 2
+    kb.fail_on_write = False
+    n = len(kb.sent)
+    clock.t += 5.1
+    dm.poll()
+    assert dm.link is not None and ev.count("error") == 2
+    assert all(p[1] >= 0x80 for p in kb.sent[n:])
+    assert kb.state.palette != bytes(483)
+
+
+def test_read_failure_on_connect_leaves_no_half_open_link(env):
+    kb, st, clock, state, dm, ev = env
+    real, closed = dm._open, []
+
+    def bad(k):
+        link = real(k)
+        link.read_all = lambda: (_ for _ in ()).throw(SnapshotError("garbled"))
+        orig = link.close
+        link.close = lambda: (closed.append(1), orig())[1]
+        return link
+    dm._open = bad
+    connect(dm, clock)
+    assert dm.link is None and ev.count("error") == 1 and closed
+    dm._open = real
+    clock.t += 5.1
+    dm.poll()
+    assert dm.link is not None and dm.snapshot is not None
+
+
+def test_verify_mismatch_keeps_link_and_no_pending(env, monkeypatch):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    monkeypatch.setattr(dm.link, "read_block", lambda name: b"wrong")
+    with pytest.raises(VerifyError):
+        dm.apply(set_sleep(0))
+    assert dm.link is not None and dm.pending is None and ev.count("error") == 1
+
+
+def test_bad_subscriber_cannot_break_manager(env):
+    from engine.device import Worker
+    kb, st, clock, state, dm, ev = env
+    dm.subscribe(lambda n, p: 1 / 0)
+    connect(dm, clock)
+    dm.apply(set_sleep(0))
+    assert Config(kb.state.config).sleep == 0
+    w = Worker(dm, poll_s=0.05)
+    w.start()
+    try:
+        assert Config(w.call(dm.apply, set_sleep(1)).result(timeout=5).config).sleep == 1
+    finally:
+        w.stop()
 
 
 def test_worker_runs_calls(env):

@@ -54,10 +54,19 @@ def encode_macro(m: Macro) -> bytes:
 
 
 def decode_macro(blob: bytes) -> Macro:
+    if not blob:
+        raise MacroError("empty macro blob")
     n = blob[0]
-    name = blob[1:1 + n].decode("utf-16-le")
+    if n % 2 or 1 + n > len(blob):
+        raise MacroError("bad macro name length")
+    if (len(blob) - 1 - n) % 4:
+        raise MacroError("event area is not a multiple of 4 bytes")
+    try:
+        name = blob[1:1 + n].decode("utf-16-le")
+    except UnicodeDecodeError as e:
+        raise MacroError("macro name is not valid UTF-16") from e
     events = []
-    for i in range(1 + n, len(blob) - 3, 4):
+    for i in range(1 + n, len(blob), 4):
         b0, b1, b2, code = blob[i:i + 4]
         kind = (b0 >> 4) & 0x07
         if kind not in KIND_NAMES:
@@ -69,14 +78,15 @@ def decode_macro(blob: bytes) -> Macro:
 
 def encode_macros(macros: list[Macro]) -> bytes:
     blobs = [encode_macro(m) for m in macros]
+    total = 4 * len(blobs) + sum(map(len, blobs))
+    if total > MACRO_SIZE:
+        raise MacroError(f"macros need {total} bytes, limit is {MACRO_SIZE}")
     table, data, off = bytearray(), bytearray(), 4 * len(blobs)
     for b in blobs:
         table += bytes([off & 0xFF, off >> 8, len(b) & 0xFF, len(b) >> 8])
         data += b
         off += len(b)
     buf = bytes(table + data)
-    if len(buf) > MACRO_SIZE:
-        raise MacroError(f"macros need {len(buf)} bytes, limit is {MACRO_SIZE}")
     return buf + bytes(MACRO_SIZE - len(buf))
 
 
@@ -103,4 +113,11 @@ def macro_to_dict(m: Macro) -> dict:
 
 
 def macro_from_dict(d: dict) -> Macro:
-    return Macro(d["name"], [MacroEvent(**e) for e in d["events"]])
+    try:
+        name = d["name"]
+        events = [MacroEvent(**e) for e in d["events"]]
+    except (KeyError, TypeError) as e:
+        raise MacroError(f"bad macro dict: {e}") from e
+    if not isinstance(name, str):
+        raise MacroError("macro name must be a string")
+    return Macro(name, events)

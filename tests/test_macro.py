@@ -1,7 +1,7 @@
 import pytest
 
 from engine.codec.macro import (
-    Macro, MacroError, MacroEvent, decode_macros, encode_macro, encode_macros,
+    Macro, MacroError, MacroEvent, decode_macro, decode_macros, encode_macro, encode_macros,
     macro_from_dict, macro_to_dict, tap,
 )
 
@@ -55,3 +55,67 @@ def test_limits():
 def test_dict_round_trip():
     m = proven_macros()[2]
     assert macro_from_dict(macro_to_dict(m)) == m
+
+
+def test_wrong_buffer_length():
+    for n in (4095, 4097):
+        with pytest.raises(MacroError):
+            decode_macros(bytes(n))
+
+
+def test_table_offset_not_multiple_of_4():
+    with pytest.raises(MacroError):
+        decode_macros(bytes([6, 0]) + bytes(4094))
+
+
+def test_first_offset_past_buffer():
+    with pytest.raises(MacroError):
+        decode_macros(bytes([0x04, 0x10]) + bytes(4094))  # first = 0x1004 = 4100
+
+
+def test_entry_outside_buffer():
+    # one entry at offset 4 with size 4093 ends at byte 4097
+    with pytest.raises(MacroError):
+        decode_macros(bytes([4, 0, 0xFD, 0x0F]) + bytes(4092))
+
+
+def test_zero_size_entry():
+    with pytest.raises(MacroError):
+        decode_macros(bytes([4, 0, 0, 0]) + bytes(4092))
+
+
+@pytest.mark.parametrize("kind", [6, 7])
+def test_reserved_event_kinds_rejected(kind):
+    blob = bytes([0, kind << 4, 0, 0, 0x04])  # empty name, one event
+    with pytest.raises(MacroError):
+        decode_macros(bytes([4, 0, 5, 0]) + blob + bytes(4096 - 9))
+
+
+@pytest.mark.parametrize("blob", [
+    b"",                       # empty blob
+    bytes([1, 0x41]),          # odd name-length byte
+    bytes([4, 0x41, 0x00]),    # name runs past blob end
+    bytes([0]) + bytes(5),     # event area not a multiple of 4
+    bytes([2, 0x00, 0xD8]),    # lone UTF-16 surrogate
+])
+def test_decode_macro_rejects_malformed_blob(blob):
+    with pytest.raises(MacroError):
+        decode_macro(blob)
+
+
+def test_single_blob_over_u16_raises_macro_error():
+    with pytest.raises(MacroError):
+        encode_macros([Macro("big", [MacroEvent("key", 4)] * 16400)])
+
+
+@pytest.mark.parametrize("d", [
+    {"events": []},                                                     # missing name
+    {"name": "x"},                                                      # missing events
+    {"name": "x", "events": [{"kind": "key", "code": 4, "bogus": 1}]},  # unknown event key
+    {"name": "x", "events": [{"kind": "key"}]},                         # missing event key
+    {"name": 5, "events": []},                                          # non-string name
+    [1, 2],                                                             # not a mapping
+])
+def test_macro_from_dict_rejects_bad_input(d):
+    with pytest.raises(MacroError):
+        macro_from_dict(d)

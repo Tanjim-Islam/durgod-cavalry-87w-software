@@ -1,0 +1,43 @@
+"""Device IDs, command IDs and block sizes. Source of truth: PROTOCOL.md."""
+
+WIRED_VID, WIRED_PID = 0x258A, 0x010C
+RADIO_VID, RADIO_PID = 0x3554, 0xFA09
+MODEL_ID = 0x7B
+
+CONFIG_SIZE = 128
+CONFIG_SIGNATURE = b"\x5a\xa5"
+LAYER_SLOTS = 126
+LAYER_SIZE = LAYER_SLOTS * 4          # 504
+LAYER_COUNT = 4
+MACRO_SIZE = 4096
+MACRO_BLOCK = 512
+KEY_COLORS_SIZE = LAYER_SLOTS * 3     # 378
+PALETTE_GROUPS = 23
+PALETTE_SIZE = PALETTE_GROUPS * 21    # 483, never write more
+NKRO_MAX_HID = 0x70                   # wired keyboard report covers 0x04..0x70
+
+
+class Wired:
+    REPORT_ID = 6
+    REPORT_SIZE = 520
+    IDENTIFY = 0x82
+    READ_CONFIG, WRITE_CONFIG = 0x84, 0x04
+    READ_LAYER, WRITE_LAYER = 0x83, 0x03
+    READ_MACROS, WRITE_MACROS = 0x85, 0x05
+    READ_KEY_COLORS, WRITE_KEY_COLORS = 0x86, 0x06
+    READ_PALETTE, WRITE_PALETTE = 0x8A, 0x0A
+    ALLOWED = frozenset({0x82, 0x84, 0x04, 0x83, 0x03, 0x85, 0x05, 0x86, 0x06, 0x8A, 0x0A})
+
+
+class Radio:
+    REPORT_ID = 0x13
+    PACKET_SIZE = 20
+    CHUNK = 14
+    IDENTIFY = 0x05
+    ONLINE = 0x07
+    READ_CONFIG, WRITE_CONFIG = 0x44, 0x04
+    WRITE_LAYER = 0x01
+    WRITE_KEY_COLORS = 0x02
+    WRITE_MACROS = 0x03
+    WRITE_PALETTE = 0x09
+    ALLOWED = frozenset({0x05, 0x07, 0x44, 0x04, 0x01, 0x02, 0x03, 0x09})

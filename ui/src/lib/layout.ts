@@ -1,4 +1,10 @@
-export interface KeyCap { slot: number; label: string; x: number; y: number; w: number }
+// label is the short caption on the cap; name is the unique accessible name.
+export interface KeyCap { slot: number; label: string; name: string; x: number; y: number; w: number }
+
+const NAMES: Record<number, { label?: string; name: string }> = {
+  79: { label: "Bksp", name: "Backspace" },
+  82: { name: "Right Shift" }, 53: { name: "Right Alt" }, 83: { name: "Right Ctrl" },
+};
 
 type Row = (string | number)[];
 // Each entry: "Label:slot[:width]" or a number = horizontal gap in key units.
@@ -23,7 +29,10 @@ export const KEYS: KeyCap[] = ROWS.flatMap((row, r) => {
   return row.flatMap((e) => {
     if (typeof e === "number") { x += e; return []; }
     const m = e.match(/^(.*?):(\d+)(?::([\d.]+))?$/)!;
-    const cap = { label: m[1].trimEnd() || m[1], slot: Number(m[2]), x, y, w: Number(m[3] ?? 1) };
+    const slot = Number(m[2]);
+    const text = m[1].trimEnd() || m[1];
+    const cap = { label: NAMES[slot]?.label ?? text, name: NAMES[slot]?.name ?? text, slot, x, y,
+                  w: Number(m[3] ?? 1) };
     x += cap.w;
     return [cap];
   });

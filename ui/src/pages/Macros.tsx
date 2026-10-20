@@ -9,6 +9,7 @@ import { AssignDialog } from "@/components/AssignDialog";
 import { Card } from "@/components/Card";
 import { MacroEditor } from "@/components/MacroEditor";
 import { PageShell } from "@/components/PageShell";
+import { StateKeyboard } from "@/components/StateKeyboard";
 import { MACRO_LIMIT, macroBytes } from "@/lib/macro";
 import { useApp } from "@/state/app";
 
@@ -96,7 +97,7 @@ export function Macros() {
   };
 
   return (
-    <PageShell title="Macros" meta="Recorded on this PC, stored on your keyboard">
+    <PageShell title="Macros" meta="Recorded on this PC, stored on your keyboard" keyboard={<StateKeyboard />}>
       <AnimatePresence initial={false}>
         {recording && (
           <motion.div key="rec" {...fade} role="status"

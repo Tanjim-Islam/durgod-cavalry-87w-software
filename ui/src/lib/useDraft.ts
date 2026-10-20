@@ -29,9 +29,9 @@ export function useDraft(base: RGB[] | null | undefined, onChange?: (d: RGB[] | 
   };
 
   useEffect(() => {
-    // A save changes the base itself, so only outside changes count.
+    // A save changes the base itself, so only outside changes count; re-checked when a failed save settles.
     if (cur.current && !busy.current && snap.current !== baseKey) { set(null); toast.info(STALE_MSG); }
-  }, [baseKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [baseKey, saving]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => notify.current?.(null), []);
 
   return { draft, shown: draft ?? base ?? null, saving, edit, discard, save };

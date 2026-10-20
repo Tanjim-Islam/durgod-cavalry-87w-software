@@ -76,3 +76,17 @@ test("a change to another effect group does not drop the draft", () => {
   rerender(<PaletteEditor effect={1} palette={[[...group.slice(1), group[0]], group]} onSave={vi.fn()} onDraft={vi.fn()} />);
   expect(screen.getByLabelText("Edit color 1")).toHaveValue("#101010");
 });
+
+test("a keyboard change during a save that fails still drops the draft", async () => {
+  let done!: (v: boolean) => void;
+  const onSave = vi.fn(() => new Promise<boolean>((r) => { done = r; }));
+  const { rerender } = render(<PaletteEditor effect={1} palette={[group, group]} onSave={onSave} onDraft={vi.fn()} />);
+  fireEvent.input(screen.getByLabelText("Edit color 1"), { target: { value: "#101010" } });
+  await userEvent.click(screen.getByRole("button", { name: "Save colors" }));
+  const other = [[1, 2, 3], ...group.slice(1)] as typeof group;
+  rerender(<PaletteEditor effect={1} palette={[group, other]} onSave={onSave} onDraft={vi.fn()} />);
+  vi.mocked(toast.info).mockClear();
+  done(false);
+  await waitFor(() => expect(toast.info).toHaveBeenCalledWith(STALE_MSG));
+  expect(screen.getByLabelText("Edit color 1")).toHaveValue("#010203");
+});

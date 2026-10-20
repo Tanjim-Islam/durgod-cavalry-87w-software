@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
+import threading
 from typing import Protocol
 
 from ..api import Api, ApiError
@@ -27,49 +29,98 @@ class WindowHost(Protocol):
 
 def _plain(fn):
     """pywebview shows the exception text; strip the ApiError type so the UI gets the message only."""
-    def call(*args):
+    def call(*args, **kwargs):
         try:
-            return fn(*args)
+            return fn(*args, **kwargs)
         except ApiError as e:
             raise Exception(str(e)) from None
     call.__name__ = fn.__name__
     return call
 
 
+def _hidden(fn):
+    """pywebview exposes every public attribute to JS unless it is marked not serializable."""
+    fn._serializable = False
+    return fn
+
+
 class Bridge:
+    """Everything public here is callable from the page; keep internals underscored."""
+
     def __init__(self, api: Api, host: WindowHost, autostart):
-        self.api, self.host, self.autostart = api, host, autostart
+        self._api, self._host, self._autostart = api, host, autostart
+        self._events: queue.Queue = queue.Queue()
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+        self._closed = False
         for name in API_METHODS:
             setattr(self, name, _plain(getattr(api, name)))
         api.subscribe(self.push)
 
+    @_hidden
+    def start(self) -> None:
+        with self._lock:
+            if self._thread is None and not self._closed:
+                self._thread = threading.Thread(target=self._dispatch, name="cavalry-events", daemon=True)
+                self._thread.start()
+
+    @_hidden
+    def stop(self) -> None:
+        with self._lock:
+            self._closed = True
+            t = self._thread
+        self._events.put(None)
+        if t is not None:
+            t.join(timeout=5)
+
+    @_hidden
     def push(self, name: str, payload: dict) -> None:
+        """Called on the device thread: only enqueue, never block or raise."""
         try:
+            if self._closed:
+                return
             msg = json.dumps({"name": name, "payload": payload})
-            self.host.eval_all(f"window.__cavalryEmit && window.__cavalryEmit({msg})")
+            self._events.put(f"window.__cavalryEmit && window.__cavalryEmit({msg})")
+            self.start()
         except Exception:
-            log.exception("could not deliver %s event to the UI", name)
+            log.exception("could not queue %s event for the UI", name)
+
+    def _dispatch(self) -> None:
+        while (js := self._events.get()) is not None:
+            try:
+                self._host.eval_all(js)
+            except Exception:
+                log.exception("could not deliver an event to the UI")
 
     def set_app_settings(self, theme=None, autostart=None):
-        out = _plain(self.api.set_app_settings)(theme, autostart)
+        previous = None
         if autostart is not None:
             try:
-                self.autostart.set(bool(autostart))
+                previous = self._autostart.enabled()
+                self._autostart.set(bool(autostart))
             except OSError as e:
                 raise Exception(f"Couldn't change Start with Windows: {e}") from None
-        return out
+        try:
+            return _plain(self._api.set_app_settings)(theme, autostart)
+        except Exception:
+            if previous is not None:
+                try:
+                    self._autostart.set(previous)
+                except OSError:
+                    log.exception("could not restore the Start with Windows entry")
+            raise
 
     def export_profile_dialog(self, name: str):
-        path = self.host.save_dialog(name)
+        path = self._host.save_dialog(name)
         if path:
-            _plain(self.api.export_profile)(name, path)
+            _plain(self._api.export_profile)(name, path)
         return path
 
-    def import_profile_dialog(self):
-        path = self.host.open_dialog()
-        return _plain(self.api.import_profile)(path) if path else None
+    def import_profile_dialog(self, overwrite: bool = False):
+        path = self._host.open_dialog()
+        return _plain(self._api.import_profile)(path, overwrite) if path else None
 
-    def show_main(self): self.host.show_main()
-    def hide_flyout(self): self.host.hide_flyout()
-    def minimize(self): self.host.minimize()
-    def quit(self): self.host.quit()
+    def show_main(self): self._host.show_main()
+    def hide_flyout(self): self._host.hide_flyout()
+    def minimize(self): self._host.minimize()
+    def quit(self): self._host.quit()

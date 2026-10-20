@@ -1,8 +1,6 @@
 import type { RGB } from "@/bridge/types";
-import { fromHex, toHex } from "@/lib/color";
+import { DEFAULT_GROUP, fromHex, toHex } from "@/lib/color";
 import { useDraft } from "@/lib/useDraft";
-
-export const DEFAULT_GROUP: RGB[] = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0], [255, 0, 255], [0, 255, 255], [255, 255, 255]];
 
 interface Props {
   effect: number; palette: RGB[][]; disabled?: boolean;

@@ -179,7 +179,7 @@ test("sleep select is disabled with a neutral placeholder before state loads", (
   render(<Settings />);
   const sel = screen.getByRole("combobox", { name: "Sleep after" });
   expect(sel).toBeDisabled();
-  expect(sel).toHaveDisplayValue("—");
+  expect(sel).toHaveDisplayValue("Not set");
 });
 
 test("every page shows the keyboard preview", async () => {

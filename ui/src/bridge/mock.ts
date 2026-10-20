@@ -1,4 +1,6 @@
+import { DEFAULT_GROUP } from "@/lib/color";
 import { BASE_LAYER, FN_LAYER, SWAP_LAYER } from "@/lib/hid";
+import { FN_LAYERS, FN_SLOT } from "@/lib/layout";
 import type { Action, AppSettings, BackupInfo, DeviceEvent, KbState, Macro, MacroEvent, RGB, ShortcutRow } from "./types";
 
 const EFFECTS = ["Always On", "Breathing", "Dream Rainbow", "Hair Trigger", "Walk in the Rain",
@@ -6,7 +8,6 @@ const EFFECTS = ["Always On", "Breathing", "Dream Rainbow", "Hair Trigger", "Wal
   "Go with the Flow", "Like a Shadow", "Blinding Light Waves", "Spin the Windmill",
   "Colourful Waterfalls", "Flower Bloom", "Game Mode"];
 const IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18];
-const DEFAULT_GROUP: RGB[] = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0], [255, 0, 255], [0, 255, 255], [255, 255, 255]];
 const SHORTCUTS: [string, string, string][] = [
   ["Fn + F1", "Media", "Mute"], ["Fn + F2", "Media", "Volume down"], ["Fn + F3", "Media", "Volume up"],
   ["Fn + F10", "Media", "Browser home"], ["Fn + F11", "Media", "My Computer"],
@@ -23,6 +24,7 @@ const SHORTCUTS: [string, string, string][] = [
 ];
 const factory = (layer: number, slot: number): Action =>
   ([BASE_LAYER, FN_LAYER, {}, SWAP_LAYER][layer] as Record<number, Action>)[slot] ?? { type: "none" };
+const CABLE_WARNING = "Saved. This key works over 2.4G but won't send over the cable (cable supports up to F21).";
 const KEY_NAMES: Record<string, string> = { "0": "Esc", "45": "J", "59": "Fn", "96": "Pause" };
 
 export function createMock(emit: (e: DeviceEvent) => void) {
@@ -103,10 +105,13 @@ export function createMock(emit: (e: DeviceEvent) => void) {
       return name;
     },
     async remap_key(layer: number, slot: number, action: Action) {
-      await wait(); s.layers![layer][slot] = action;
+      await wait();
+      // Same refusals as the engine: Fn is locked on the base layer and the WASD swap, and two system actions are off limits.
+      if (FN_LAYERS.includes(layer) && slot === FN_SLOT || action.type === "system" && (action.code === 0x04 || action.code === 0x10))
+        fail("That action can't be assigned from the app.");
+      s.layers![layer][slot] = action;
       const r = done();
-      if (action.type === "key" && action.hid > 0x70)
-        r.warning = "Saved. This key works over 2.4G but won't send over the cable (cable supports up to F21).";
+      if (action.type === "key" && action.hid > 0x70) r.warning = CABLE_WARNING;
       return r;
     },
     async reset_key(layer: number, slot: number) { await wait(); s.layers![layer][slot] = factory(layer, slot); return done(); },
@@ -121,7 +126,8 @@ export function createMock(emit: (e: DeviceEvent) => void) {
       const i = index ?? ms.length;
       if (index == null) ms.push(macro); else if (index < ms.length) ms[index] = macro; else fail(`No macro number ${index}`);
       emit({ name: "state", payload: {} });
-      return { index: i, warning: null };
+      const unsafe = macro.events.some((e) => e.kind === "key" && e.code > 0x70);
+      return { index: i, warning: unsafe ? CABLE_WARNING : null };
     },
     // Like the engine: keys playing the deleted macro are unbound, higher indexes shift down.
     async delete_macro(index: number) {
@@ -142,7 +148,8 @@ export function createMock(emit: (e: DeviceEvent) => void) {
     async rename_profile(old: string, name: string) {
       await wait();
       if (!profiles.includes(old)) fail("No such profile");
-      if (profiles.includes(name) && name !== old) fail(`a profile named '${name}' already exists`);
+      const same = name.toLowerCase() === old.toLowerCase(); // a case-only rename is fine
+      if (!same && profiles.some((p) => p.toLowerCase() === name.toLowerCase())) fail(`a profile named '${name}' already exists`);
       profiles = profiles.map((p) => (p === old ? name : p)).sort();
       return [...profiles];
     },

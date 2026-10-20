@@ -18,6 +18,9 @@ window.__cavalryEmit = (e) => listeners.forEach((l) => {
 let mock: Remote | null = null;
 let ready: Promise<void> | null = null;
 
+/** Test-only: forget the shared mock and any pending bridge wait. */
+export function resetMock() { mock = null; ready = null; }
+
 export const hasApi = () => {
   const api = window.pywebview?.api;
   return Boolean(api) && Object.values(api!).some((v) => typeof v === "function");

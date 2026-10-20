@@ -5,9 +5,10 @@ import { Card } from "@/components/Card";
 import { EffectRow } from "@/components/EffectRow";
 import { Keyboard } from "@/components/Keyboard";
 import { LevelSlider } from "@/components/LevelSlider";
-import { KeyPainterControls, PaintKeyboard, useKeyPainter } from "@/components/KeyPainter";
+import { KeyPainterControls, PaintKeyboard } from "@/components/KeyPainter";
 import { PageShell } from "@/components/PageShell";
 import { PaletteEditor } from "@/components/PaletteEditor";
+import { useKeyPainter } from "@/lib/useKeyPainter";
 import { useApp } from "@/state/app";
 
 export function Lighting() {

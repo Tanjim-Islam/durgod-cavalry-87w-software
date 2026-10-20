@@ -27,6 +27,7 @@ test("editing a palette color and saving updates the keyboard state", async () =
   await useApp.getState().refresh();
   render(<Lighting />);
   await userEvent.click(await screen.findByRole("radio", { name: "Go with the Flow" }));
+  await waitFor(() => expect(useApp.getState().state?.lighting?.effect).toBe(11));
   fireEvent.input(await screen.findByLabelText("Edit color 1"), { target: { value: "#123456" } });
   await userEvent.click(screen.getByRole("button", { name: "Save colors" }));
   await waitFor(() => expect(useApp.getState().state?.palette?.[11][0]).toEqual([18, 52, 86]));

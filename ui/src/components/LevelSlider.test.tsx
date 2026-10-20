@@ -24,7 +24,7 @@ test("a burst of key presses updates the label live and commits once", async () 
 
 test("null value shows a dash and the slider is disabled", () => {
   render(<LevelSlider label="Speed" value={null} max={4} onCommit={() => {}} />);
-  expect(screen.getByText("—")).toBeInTheDocument();
+  expect(screen.getByText("-")).toBeInTheDocument();
   expect(screen.getByRole("slider", { name: "Speed" })).toHaveAttribute("data-disabled");
 });
 

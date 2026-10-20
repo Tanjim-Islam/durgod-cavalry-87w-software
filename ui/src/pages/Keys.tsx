@@ -7,7 +7,8 @@ import { Keyboard } from "@/components/Keyboard";
 import { PageShell } from "@/components/PageShell";
 import { Segmented } from "@/components/Segmented";
 import { describe, isRemapped } from "@/lib/describe";
-import { KEYS } from "@/lib/layout";
+import { NEEDS_CABLE } from "@/lib/copy";
+import { FN_LAYERS, FN_SLOT, KEYS } from "@/lib/layout";
 import { useApp } from "@/state/app";
 
 const LAYERS: ["0" | "1" | "3", string][] = [["0", "Base"], ["1", "Fn layer"], ["3", "WASD swap"]];
@@ -22,6 +23,7 @@ export function Keys() {
   const off = !state?.connected || state.partial || !actions;
   const marks = useMemo(() => new Set(actions ? actions.flatMap((a, s) => (isRemapped(layer, s, a) ? [s] : [])) : []), [actions, layer]);
   const meta = !state?.connected ? "Connect the keyboard to change keys"
+    : state.partial ? NEEDS_CABLE
     : off ? (state.layers_error || "Couldn't read the key layout. Reconnect the keyboard.")
     : "Click a key to change what it does";
   const cap = KEYS.find((k) => k.slot === slot);
@@ -29,7 +31,7 @@ export function Keys() {
   return (
     <PageShell title="Keys" meta={meta}
       keyboard={<Keyboard lighting={state?.lighting} palette={state?.palette} keyColors={state?.key_colors}
-        selected={slot} marks={marks} onKeyClick={setSlot} />}>
+        selected={slot} marks={marks} markLabel={layer === 0 ? "changed" : "assigned"} onKeyClick={setSlot} />}>
       <div className="flex items-center justify-between">
         <Segmented label="Layer" value={layerKey} options={LAYERS} onChange={setLayerKey} />
         <button type="button" disabled={off} onClick={() => setConfirm(true)} className="rounded-lg border border-line px-3 py-1.5 text-[13px] disabled:opacity-40">Reset layer</button>
@@ -39,7 +41,7 @@ export function Keys() {
           <motion.div key={`${layer}-${slot}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
             <Card title={cap.name}>
               <p className="mb-3 text-[13px]">Now: {describe(current)}</p>
-              {layer === 0 && slot === 59 ? (
+              {FN_LAYERS.includes(layer) && slot === FN_SLOT ? (
                 <p className="text-[13px] text-muted">The Fn key can't be remapped. It opens all your Fn shortcuts.</p>
               ) : (<>
                 <ActionEditor key={`${layer}-${slot}-${JSON.stringify(current)}`} value={current} macros={state?.macros ?? []} disabled={off}

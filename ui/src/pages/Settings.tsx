@@ -35,7 +35,7 @@ export function Settings() {
             <select aria-label="Sleep after" disabled={off || !s || s.sleep === 0} value={s?.sleep ?? ""}
               onChange={(e) => void act("set_settings", null, Number(e.target.value), null)}
               className="rounded-md border border-line bg-surface-2 px-2 py-1 text-[13px] disabled:opacity-40">
-              {!s && <option value="">—</option>}
+              {!s && <option value="">Not set</option>}
               {s?.sleep === 0 && <option value={0}>Never</option>}
               {s && s.sleep !== 0 && !SLEEP.some(([v]) => v === s.sleep) && <option value={s.sleep}>{sleepLabel(s.sleep)} (custom)</option>}
               {SLEEP.map(([v, t]) => <option key={v} value={v}>{t}</option>)}

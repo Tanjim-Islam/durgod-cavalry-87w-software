@@ -2,12 +2,12 @@ import { useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Keyboard } from "@/components/Keyboard";
 import { Segmented } from "@/components/Segmented";
-import { KEYS } from "@/lib/layout";
+import { NEEDS_CABLE } from "@/lib/copy";
+import { FN_LAYERS, FN_SLOT, KEYS } from "@/lib/layout";
 import { clampRepeat } from "@/lib/macro";
 import { useApp } from "@/state/app";
 
 const LAYERS: ["0" | "1" | "3", string][] = [["0", "Base"], ["1", "Fn layer"], ["3", "WASD swap"]];
-const FN_SLOT = 59;
 
 // Binds a saved macro to a key on one of the layers.
 export function AssignDialog({ open, macroIndex, onClose }: { open: boolean; macroIndex: number; onClose: () => void }) {
@@ -38,14 +38,14 @@ function Body({ macroIndex, onClose }: { macroIndex: number; onClose: () => void
   const marks = useMemo(() => new Set(actions ? actions.flatMap((a, s) => (a.type === "macro" && a.index === macroIndex ? [s] : [])) : []),
     [actions, macroIndex]);
   const pick = (s: number) => {
-    if (layer === 0 && s === FN_SLOT) { setSlot(null); setNote("The Fn key can't hold a macro. Pick another key."); return; }
+    if (FN_LAYERS.includes(layer) && s === FN_SLOT) { setSlot(null); setNote("The Fn key can't hold a macro. Pick another key."); return; }
     setNote(""); setSlot(s);
   };
   const changeLayer = (v: "0" | "1" | "3") => {
     setLayerKey(v); setNote("");
-    if (v === "0" && slot === FN_SLOT) setSlot(null);
+    if ((v === "0" || v === "3") && slot === FN_SLOT) setSlot(null);
   };
-  const off = !state?.connected || !actions;
+  const off = !state?.connected || state.partial || !actions;
   const name = KEYS.find((k) => k.slot === slot)?.name;
   const assign = async () => {
     if (slot == null) return;
@@ -60,9 +60,9 @@ function Body({ macroIndex, onClose }: { macroIndex: number; onClose: () => void
       <Segmented label="Layer" value={layerKey} options={LAYERS} onChange={changeLayer} />
       <div className="no-scrollbar overflow-x-auto">
         <Keyboard unit={28} lighting={state?.lighting} palette={state?.palette} keyColors={state?.key_colors}
-          selected={slot} marks={marks} onKeyClick={pick} />
+          selected={slot} marks={marks} markLabel="plays this macro" onKeyClick={pick} />
       </div>
-      <p className="min-h-5 text-[12px] text-muted" aria-live="polite">{note || (name ? `Selected: ${name}` : "Click a key")}</p>
+      <p className="min-h-5 text-[12px] text-muted" aria-live="polite">{note || (state?.connected && state.partial ? NEEDS_CABLE : name ? `Selected: ${name}` : "Click a key")}</p>
       <div className="flex flex-wrap items-center gap-3">
         <Segmented label="Play mode" value={mode} options={[["1", "Once"], ["2", "While held"], ["4", "Toggle"]]} onChange={setMode} />
         {mode === "1" && <label className="flex items-center gap-2 text-[13px]">Repeat

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { RGB } from "@/bridge/types";
 
@@ -11,7 +11,8 @@ export function useDraft(base: RGB[] | null | undefined, onChange?: (d: RGB[] | 
   const cur = useRef<RGB[] | null>(null);   // latest draft, updated synchronously for fast drags
   const snap = useRef<string | null>(null); // base at the moment the draft started
   const busy = useRef(false);
-  const notify = useRef(onChange); notify.current = onChange;
+  const notify = useRef(onChange);
+  useLayoutEffect(() => { notify.current = onChange; });
   const baseKey = JSON.stringify(base ?? null);
 
   const set = (next: RGB[] | null) => { cur.current = next; if (!next) snap.current = null; setDraft(next); notify.current?.(next); };
@@ -31,7 +32,7 @@ export function useDraft(base: RGB[] | null | undefined, onChange?: (d: RGB[] | 
   useEffect(() => {
     // A save changes the base itself, so only outside changes count; re-checked when a failed save settles.
     if (cur.current && !busy.current && snap.current !== baseKey) { set(null); toast.info(STALE_MSG); }
-  }, [baseKey, saving]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [baseKey, saving]);
   useEffect(() => () => notify.current?.(null), []);
 
   return { draft, shown: draft ?? base ?? null, saving, edit, discard, save };

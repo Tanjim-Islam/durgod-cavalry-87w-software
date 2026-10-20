@@ -21,7 +21,7 @@ export function LevelSlider({ label, value, max, onCommit, disabled }: Props) {
   return (
     <div>
       <div className="mb-2.5 flex justify-between text-[13px]">
-        <span>{label}</span><span className="tabular-nums text-muted">{value == null ? "—" : `${v} / ${max}`}</span>
+        <span>{label}</span><span className="tabular-nums text-muted">{value == null ? "-" : `${v} / ${max}`}</span>
       </div>
       <Slider aria-label={label} min={0} max={max} step={1} value={[v]} disabled={disabled || value == null}
         onValueChange={([n]) => setV(n)} onValueCommit={([n]) => commit(n)} />

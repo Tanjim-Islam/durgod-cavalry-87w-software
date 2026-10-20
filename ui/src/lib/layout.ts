@@ -24,6 +24,10 @@ const ROWS: Row[] = [
    "Menu:65:1.25", "Ctrl :83:1.25", 0.25, "Left:89", "Down:95", "Right:101"],
 ];
 
+// The Fn key is locked on the base layer and on the WASD swap, which overlays it.
+export const FN_SLOT = 59;
+export const FN_LAYERS: number[] = [0, 3];
+
 export const KEYS: KeyCap[] = ROWS.flatMap((row, r) => {
   let x = 0;
   const y = r === 0 ? 0 : r + 0.25;

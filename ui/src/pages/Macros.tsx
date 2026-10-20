@@ -10,6 +10,7 @@ import { Card } from "@/components/Card";
 import { MacroEditor } from "@/components/MacroEditor";
 import { PageShell } from "@/components/PageShell";
 import { StateKeyboard } from "@/components/StateKeyboard";
+import { NEEDS_CABLE } from "@/lib/copy";
 import { MACRO_LIMIT, macroBytes } from "@/lib/macro";
 import { useApp } from "@/state/app";
 
@@ -32,7 +33,7 @@ export function Macros() {
   const starting = useRef(false);
   const mounted = useRef(true);
   const macros = state?.macros ?? null;
-  const off = !state?.connected || !macros;
+  const off = !state?.connected || state.partial || !macros;
 
   // Stop an active recording when leaving the page; a pending start stops itself when it lands.
   useEffect(() => {
@@ -112,10 +113,12 @@ export function Macros() {
       </AnimatePresence>
       {!state?.connected ? (
         <Card><p className="text-[13px] text-muted">Connect the keyboard to edit macros.</p></Card>
+      ) : state.partial ? (
+        <Card><p className="text-[13px] text-muted">{NEEDS_CABLE}.</p></Card>
       ) : !macros ? (
         <Card title="Macros couldn't be read">
           <p className="mb-3 text-[13px]">{state.macros_error || "The macro memory on the keyboard couldn't be read."}</p>
-          <button type="button" disabled={recording} onClick={() => setConfirm("clear")} className={btn}>Clear all macros</button>
+          {state.macros_error && <button type="button" disabled={recording} onClick={() => setConfirm("clear")} className={btn}>Clear all macros</button>}
         </Card>
       ) : (
         <div className="grid items-start gap-4 md:grid-cols-[200px_minmax(0,1fr)]">

@@ -152,3 +152,24 @@ test("unreadable macros offer clear all", async () => {
     await waitFor(() => expect(api.clear_macros).toHaveBeenCalledTimes(1));
   } finally { delete window.pywebview; }
 });
+
+test("first-run 2.4G state asks for the cable and offers no destructive action", async () => {
+  await useApp.getState().refresh();
+  const s = useApp.getState().state!;
+  useApp.setState({ state: { ...s, partial: true, layers: null, macros: null } });
+  render(<Macros />);
+  expect(screen.getByText("Connect the cable once so the app can read your keyboard.")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Clear all macros" })).not.toBeInTheDocument();
+});
+
+test("Clear all macros is offered only when the macro memory reported an error", async () => {
+  await useApp.getState().refresh();
+  const s = useApp.getState().state!;
+  useApp.setState({ state: { ...s, macros: null } });
+  const { unmount } = render(<Macros />);
+  expect(screen.queryByRole("button", { name: "Clear all macros" })).not.toBeInTheDocument();
+  unmount();
+  useApp.setState({ state: { ...s, macros: null, macros_error: "The keyboard's macro memory can't be read." } });
+  render(<Macros />);
+  expect(screen.getByRole("button", { name: "Clear all macros" })).toBeInTheDocument();
+});

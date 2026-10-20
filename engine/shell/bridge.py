@@ -5,7 +5,9 @@ import json
 import logging
 import queue
 import threading
-from typing import Protocol
+import time
+from concurrent.futures import Future
+from typing import Callable, Protocol
 
 from ..api import Api, ApiError
 
@@ -25,6 +27,53 @@ class WindowHost(Protocol):
     def eval_all(self, js: str) -> None: ...
     def save_dialog(self, name: str) -> str | None: ...
     def open_dialog(self) -> str | None: ...
+
+
+class _Lane:
+    """One daemon thread per window, so a hung page only blocks its own lane."""
+
+    def __init__(self, name: str):
+        self._q: queue.Queue = queue.Queue()
+        self.last: Future | None = None
+        threading.Thread(target=self._run, name=f"cavalry-eval-{name}", daemon=True).start()
+
+    def submit(self, fn, js: str) -> Future:
+        self.last = Future()
+        self._q.put((self.last, fn, js))
+        return self.last
+
+    def _run(self) -> None:
+        while True:
+            f, fn, js = self._q.get()
+            try:
+                f.set_result(fn(js))
+            except Exception as e:
+                f.set_exception(e)
+
+
+class Courier:
+    """Delivers one script to several windows, waiting at most `timeout` s; a still-busy window is skipped."""
+
+    def __init__(self, timeout: float = 5.0):
+        self.timeout = timeout
+        self._lanes: dict[str, _Lane] = {}
+
+    def send(self, targets: dict[str, Callable[[str], object]], js: str) -> None:
+        sent = {}
+        for name, fn in targets.items():
+            lane = self._lanes.get(name) or self._lanes.setdefault(name, _Lane(name))
+            if lane.last is not None and not lane.last.done():
+                log.warning("%s is not responding; skipped an event", name)
+                continue
+            sent[name] = lane.submit(fn, js)
+        deadline = time.monotonic() + self.timeout
+        for name, f in sent.items():
+            try:
+                f.result(timeout=max(0.0, deadline - time.monotonic()))
+            except TimeoutError:
+                log.warning("%s did not take an event within %.0f s", name, self.timeout)
+            except Exception:
+                log.exception("could not deliver an event to %s", name)
 
 
 def _plain(fn):

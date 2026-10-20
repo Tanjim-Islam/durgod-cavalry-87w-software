@@ -203,3 +203,20 @@ def test_session_end_drains_the_worker_before_returning(monkeypatch):
     w.session("end")
     assert order == ["close", "drain"]
     assert w.main.events.closing.fire() == [True]
+
+
+def test_eval_all_delivers_to_ready_windows_without_waiting_on_a_hung_one(wins):
+    import threading
+    import time
+    gate, got = threading.Event(), []
+    for w in (wins.main, wins.flyout):
+        w.events._pywebviewready = threading.Event()
+        w.events._pywebviewready.set()
+    wins.main.evaluate_js = lambda js: gate.wait(10)
+    wins.flyout.evaluate_js = got.append
+    wins._courier.timeout = 0.2
+    t0 = time.monotonic()
+    wins.eval_all("a")
+    wins.eval_all("b")
+    assert got == ["a", "b"] and time.monotonic() - t0 < 1.0
+    gate.set()

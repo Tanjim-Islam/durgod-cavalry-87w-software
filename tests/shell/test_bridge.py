@@ -210,3 +210,48 @@ def test_page_sees_only_the_intended_surface(tmp_path):
             "show_main", "hide_flyout", "minimize", "quit"}
     finally:
         bridge.stop()
+
+
+def test_one_hung_window_does_not_stop_events_for_the_other(caplog):
+    from engine.shell.bridge import Courier
+    gate, got = threading.Event(), []
+    courier = Courier(timeout=0.2)
+    targets = {"main": lambda js: gate.wait(10), "flyout": got.append}
+    t0 = time.monotonic()
+    with caplog.at_level("WARNING", logger="cavalry"):
+        for i in range(3):
+            courier.send(targets, f"e{i}")
+    assert got == ["e0", "e1", "e2"]
+    assert time.monotonic() - t0 < 1.0
+    assert any("main" in r.getMessage() for r in caplog.records)
+    gate.set()
+
+
+def test_courier_resumes_a_window_once_it_answers_again():
+    from engine.shell.bridge import Courier
+    gate, got = threading.Event(), []
+
+    def slow(js):
+        if js == "e0":
+            gate.wait(10)
+        got.append(js)
+
+    courier = Courier(timeout=0.1)
+    courier.send({"main": slow}, "e0")
+    courier.send({"main": slow}, "skipped")
+    gate.set()
+    deadline = time.monotonic() + 5
+    while got != ["e0"] and time.monotonic() < deadline:
+        time.sleep(0.01)
+    courier.send({"main": slow}, "e2")
+    assert got == ["e0", "e2"]
+
+
+def test_courier_logs_a_failing_window_and_still_delivers_to_the_rest():
+    from engine.shell.bridge import Courier
+    got = []
+
+    def boom(js): raise RuntimeError("page gone")
+
+    Courier(timeout=1).send({"main": boom, "flyout": got.append}, "e")
+    assert got == ["e"]

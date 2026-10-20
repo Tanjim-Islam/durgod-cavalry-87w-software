@@ -18,7 +18,7 @@ from ..links.detect import detect_link_kind, open_link
 from ..store import Store, default_root
 from . import single
 from .autostart import Autostart
-from .bridge import API_METHODS, Bridge
+from .bridge import API_METHODS, Bridge, Courier
 from .flyout import place
 from .tray import Tray
 
@@ -144,6 +144,7 @@ class Windows:
                                             resizable=False, background_color="#1a1a1a", easy_drag=False)
         self._quitting = False
         self._on_quit, self._on_session_end = on_quit, on_session_end
+        self._courier = Courier()
         self.main.events.closing += self._on_close
         self.flyout.events.closing += self._on_flyout_close
         self.flyout.events.initialized += self._fix_flyout_url
@@ -204,12 +205,8 @@ class Windows:
 
     def eval_all(self, js: str) -> None:
         # A page that isn't ready yet fetches state on load; don't stall the event thread waiting for it.
-        for w in (self.main, self.flyout):
-            if w.events._pywebviewready.is_set():
-                try:
-                    w.evaluate_js(js)
-                except Exception:
-                    log.exception("could not deliver an event to %s", w.title)
+        ready = {w.title: w.evaluate_js for w in (self.main, self.flyout) if w.events._pywebviewready.is_set()}
+        self._courier.send(ready, js)
 
     def save_dialog(self, name: str) -> str | None:
         r = self.main.create_file_dialog(webview.FileDialog.SAVE, save_filename=f"{name}.cavalry.json",

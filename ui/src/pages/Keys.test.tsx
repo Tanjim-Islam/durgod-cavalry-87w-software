@@ -15,6 +15,7 @@ test("remap J on the Fn layer and see the mark", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Apply" }));
   await waitFor(() => expect(useApp.getState().state?.layers?.[1][45]).toEqual({ type: "consumer", usage: 0x192 }));
   expect(screen.getByText("Now: Calculator")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "J" })).toHaveAttribute("aria-description", "remapped");
 });
 
 test("base-layer Fn can't be remapped", async () => {

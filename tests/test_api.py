@@ -96,6 +96,19 @@ def test_remap_and_reset(api):
         a.remap_key(0, 200, {"type": "key", "hid": 0x04})
 
 
+def test_remap_refuses_dangerous_actions(api):
+    a, kb = api
+    before = list(kb.state.layers)
+    for code in (0x04, 0x10):
+        with pytest.raises(ApiError, match="can't be assigned"):
+            a.remap_key(1, 45, {"type": "system", "code": code})
+    with pytest.raises(ApiError, match="can't be assigned"):
+        a.remap_key(0, 59, {"type": "key", "hid": 0x04})
+    assert list(kb.state.layers) == before
+    a.remap_key(1, 45, {"type": "system", "code": 0x05})   # ordinary system actions stay allowed
+    a.remap_key(1, 59, {"type": "key", "hid": 0x04})       # slot 59 is only special on the base layer
+
+
 def test_high_hid_is_a_warning_not_a_refusal(api):
     a, kb = api
     res = a.remap_key(0, 45, {"type": "key", "hid": 0x73})

@@ -21,10 +21,13 @@ export function Keys() {
   const actions = state?.layers?.[layer] ?? null;
   const off = !state?.connected || state.partial || !actions;
   const marks = useMemo(() => new Set(actions ? actions.flatMap((a, s) => (isRemapped(layer, s, a) ? [s] : [])) : []), [actions, layer]);
+  const meta = !state?.connected ? "Connect the keyboard to change keys"
+    : off ? ((!state.partial && state.layers_error) || "Couldn't read the key layout. Reconnect the keyboard.")
+    : "Click a key to change what it does";
   const cap = KEYS.find((k) => k.slot === slot);
   const current = slot != null && actions ? actions[slot] : null;
   return (
-    <PageShell title="Keys" meta={off ? (state?.layers_error ?? "Connect the keyboard to change keys") : "Click a key to change what it does"}
+    <PageShell title="Keys" meta={meta}
       keyboard={<Keyboard lighting={state?.lighting} palette={state?.palette} keyColors={state?.key_colors}
         selected={slot} marks={marks} onKeyClick={setSlot} />}>
       <div className="flex items-center justify-between">
@@ -39,7 +42,7 @@ export function Keys() {
               {layer === 0 && slot === 59 ? (
                 <p className="text-[13px] text-muted">The Fn key can't be remapped. It opens all your Fn shortcuts.</p>
               ) : (<>
-                <ActionEditor key={`${layer}-${slot}`} value={current} macros={state?.macros ?? []} disabled={off}
+                <ActionEditor key={`${layer}-${slot}-${JSON.stringify(current)}`} value={current} macros={state?.macros ?? []} disabled={off}
                   onApply={(a) => void act("remap_key", layer, slot, a)} />
                 <button type="button" disabled={off} onClick={() => void act("reset_key", layer, slot)}
                   className="mt-3 text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline disabled:opacity-40">Reset key</button>

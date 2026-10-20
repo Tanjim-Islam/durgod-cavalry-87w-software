@@ -20,7 +20,8 @@ from pathlib import Path
 from .codec.colors import (ColorError, decode_key_colors, decode_palette, encode_key_colors,
                            encode_palette)
 from .codec.config import EFFECT_IDS, EFFECTS, Config, ConfigError
-from .codec.keymap import (KEY_SLOTS, KeymapError, MacroRef, NoAction, action_from_dict,
+from .codec.keymap import (KEY_SLOTS, KeymapError, MacroRef, NoAction, System,
+                           action_from_dict,
                            action_to_dict, decode_layer, encode_layer, wired_unsafe)
 from .codec.macro import (MacroError, decode_macros, encode_macros, macro_from_dict,
                           macro_to_dict)
@@ -124,6 +125,10 @@ def _colors(name: str, v, n: int) -> list[tuple[int, int, int]]:
             raise ApiError(f"{name}: each color must be [red, green, blue] with values 0..255")
         out.append((c[0], c[1], c[2]))
     return out
+
+
+FN_SLOT = 59                      # base-layer Fn key, never remappable
+_BLOCKED_SYSTEM = {0x04, 0x10}    # factory reset, clear Bluetooth pairing
 
 
 def _position(layer, slot) -> None:
@@ -268,6 +273,8 @@ class Api:
     def remap_key(self, layer: int, slot: int, action: dict):
         _position(layer, slot)
         a = action_from_dict(action)
+        if (layer == 0 and slot == FN_SLOT) or (isinstance(a, System) and a.code in _BLOCKED_SYSTEM):
+            raise ApiError("That action can't be assigned from the app.")
         state = self._set_slot(layer, slot, a, check_macro=True)
         return _warn(state, CABLE_WARNING if wired_unsafe(a) else None)
 

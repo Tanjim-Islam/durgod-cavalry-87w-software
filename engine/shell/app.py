@@ -136,14 +136,14 @@ def setup_logging(log_dir: Path) -> None:
 
 
 class Windows:
-    def __init__(self, url: str, start_hidden: bool, on_quit=lambda: None):
+    def __init__(self, url: str, start_hidden: bool, on_quit=lambda: None, on_session_end=lambda: None):
         self.main = webview.create_window(TITLE, url, width=1180, height=760, min_size=(980, 640),
                                           hidden=start_hidden, background_color="#1a1a1a")
         self.flyout = webview.create_window("Cavalry flyout", url + "#/flyout", width=FLYOUT_SIZE[0],
                                             height=FLYOUT_SIZE[1], frameless=True, on_top=True, hidden=True,
                                             resizable=False, background_color="#1a1a1a", easy_drag=False)
         self._quitting = False
-        self._on_quit = on_quit
+        self._on_quit, self._on_session_end = on_quit, on_session_end
         self.main.events.closing += self._on_close
         self.flyout.events.closing += self._on_flyout_close
         self.flyout.events.initialized += self._fix_flyout_url
@@ -191,6 +191,17 @@ class Windows:
         for w in (self.flyout, self.main):
             _quietly(w.destroy)
 
+    def session(self, action: str) -> None:
+        """Called on the tray thread for WM_QUERYENDSESSION / WM_ENDSESSION."""
+        if action == "cancelled":
+            self._quitting = False
+            return
+        self._quitting = True
+        if action == "end":
+            # Windows may end the process once this returns, so finish keyboard writes now.
+            _quietly(self._on_quit)
+            _quietly(self._on_session_end)
+
     def eval_all(self, js: str) -> None:
         # A page that isn't ready yet fetches state on load; don't stall the event thread waiting for it.
         for w in (self.main, self.flyout):
@@ -227,12 +238,12 @@ def main(argv: list[str]) -> int:
     setup_logging(root / "logs")
     try:
         store, manager, worker, api = build_engine(root)
-        windows = Windows(ui_url(dev), start_hidden=tray_only, on_quit=worker.close)
+        windows = Windows(ui_url(dev), start_hidden=tray_only, on_quit=worker.close, on_session_end=worker.stop)
         bridge = Bridge(api, windows, Autostart(launch_command()))
         fns = exposed_functions(bridge)
         for w in (windows.main, windows.flyout):
             w.expose(*fns)
-        tray = Tray(str(ICON), TITLE, windows.show_main, windows.show_flyout)
+        tray = Tray(str(ICON), TITLE, windows.show_main, windows.show_flyout, on_session=windows.session)
     except Exception:
         log.exception("could not start %s", TITLE)
         raise

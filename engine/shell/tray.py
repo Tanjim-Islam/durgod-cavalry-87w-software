@@ -31,10 +31,18 @@ def click_action(lparam: int) -> str | None:
     return None
 
 
+def session_action(msg: int, wparam: int) -> str | None:
+    if msg == win32con.WM_QUERYENDSESSION:
+        return "ending"
+    if msg == win32con.WM_ENDSESSION:
+        return "end" if wparam else "cancelled"
+    return None
+
+
 class Tray:
-    def __init__(self, icon_path: str, tooltip: str, on_main, on_flyout):
+    def __init__(self, icon_path: str, tooltip: str, on_main, on_flyout, on_session=lambda action: None):
         self.icon_path, self.tooltip = icon_path, tooltip
-        self.on_main, self.on_flyout = on_main, on_flyout
+        self.on_main, self.on_flyout, self.on_session = on_main, on_flyout, on_session
         self._hwnd = None
         self._added = False
         self._attempts = 0
@@ -60,6 +68,10 @@ class Tray:
             log.exception("tray callback failed")
 
     def _proc(self, hwnd, msg, wparam, lparam):
+        session = session_action(msg, wparam)
+        if session:  # sign-out/shutdown: never veto it, let the app close for real
+            self._call(self.on_session, session)
+            return 1 if msg == win32con.WM_QUERYENDSESSION else 0
         if msg == WM_TRAY:
             action = click_action(lparam)
             if action == "main":

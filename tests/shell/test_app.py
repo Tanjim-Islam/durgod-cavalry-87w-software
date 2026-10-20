@@ -184,3 +184,22 @@ def test_quit_still_closes_main_when_the_flyout_is_already_gone(wins):
     wins.flyout.destroy = gone
     wins.quit()
     assert ("destroy", ()) in wins.main.calls
+
+
+def test_session_ending_lets_both_windows_close(wins):
+    wins.session("ending")
+    assert wins.main.events.closing.fire() == [True]
+    assert wins.flyout.events.closing.fire() == [True]
+    wins.session("cancelled")
+    assert wins.main.events.closing.fire() == [False]
+
+
+def test_session_end_drains_the_worker_before_returning(monkeypatch):
+    order = []
+    monkeypatch.setattr(app.webview, "create_window", lambda title, url, **kw: _Window(title, url, **kw))
+    monkeypatch.setattr(app.win32api, "GetSystemMetrics", lambda i: 0)
+    w = app.Windows("C:/ui/index.html", start_hidden=False, on_quit=lambda: order.append("close"),
+                    on_session_end=lambda: order.append("drain"))
+    w.session("end")
+    assert order == ["close", "drain"]
+    assert w.main.events.closing.fire() == [True]

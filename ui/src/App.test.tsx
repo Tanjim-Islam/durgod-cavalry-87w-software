@@ -10,7 +10,7 @@ test("sidebar navigates between pages with the connection pill shown", async () 
   expect(await screen.findByText("2.4G · connected")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Shortcuts" }));
   expect(await screen.findByRole("heading", { name: "Shortcuts" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /Keys/ })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /Macros/ })).toBeDisabled();
 });
 
 test("state and settings are fetched again when pywebviewready arrives after mount", async () => {

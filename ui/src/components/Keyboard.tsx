@@ -5,13 +5,13 @@ import { brightnessOpacity, isAnimated, previewColor } from "@/lib/effects";
 
 interface Props {
   lighting?: Lighting | null; palette?: RGB[][] | null; keyColors?: RGB[] | null;
-  selected?: number | null; onKeyClick?: (slot: number) => void; unit?: number;
+  selected?: number | null; marks?: Set<number>; onKeyClick?: (slot: number) => void; unit?: number;
 }
 
 // Caps are dark in both themes, so captions use a fixed light color rather than the theme ink.
 const CAPTION = "rgba(255, 255, 255, 0.72)";
 
-export function Keyboard({ lighting, palette, keyColors, selected, onKeyClick, unit = 30 }: Props) {
+export function Keyboard({ lighting, palette, keyColors, selected, marks, onKeyClick, unit = 30 }: Props) {
   const reduce = useReducedMotion();
   const o = brightnessOpacity(lighting?.brightness);
   const pulse = !!lighting && isAnimated(lighting.effect) && lighting.brightness !== 0 && !reduce;
@@ -33,13 +33,15 @@ export function Keyboard({ lighting, palette, keyColors, selected, onKeyClick, u
           transition: pulse ? { duration: 2.4, repeat: Infinity, delay: (k.x + k.y) * 0.06 } : { duration: 0.2 },
         };
         const text = k.w >= 1 && k.label.length <= 6 ? k.label : "";
+        const dot = marks?.has(k.slot) ? <span aria-hidden="true" className="absolute right-1 top-1 size-1.5 rounded-full bg-accent" /> : null;
         return onKeyClick ? (
           <motion.button key={k.slot} type="button" aria-pressed={selected === k.slot}
-            onClick={() => onKeyClick(k.slot)} whileHover={{ y: -1 }} whileTap={{ y: 1 }} {...props}>
-            {text}
+            onClick={() => onKeyClick(k.slot)} whileHover={{ y: -1 }} whileTap={{ y: 1 }}
+            {...(marks?.has(k.slot) ? { "aria-description": "remapped" } : {})} {...props}>
+            {text}{dot}
           </motion.button>
         ) : (
-          <motion.div key={k.slot} aria-hidden="true" {...props}>{text}</motion.div>
+          <motion.div key={k.slot} aria-hidden="true" {...props}>{text}{dot}</motion.div>
         );
       })}
     </div>

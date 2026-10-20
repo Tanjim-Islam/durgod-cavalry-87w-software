@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 import pytest
@@ -670,3 +671,81 @@ def test_failed_backup_does_not_suppress_next_config_backup(env, monkeypatch):
     clock.t += 5
     dm.apply(set_brightness(3))
     assert len(rolling(st)) == 1
+
+
+# ---------- shutdown drain
+
+class _IdleManager:
+    def __init__(self):
+        self.polls = 0
+
+    def poll(self):
+        self.polls += 1
+
+    def _emit(self, name, payload=None):
+        pass
+
+
+def _slow(gate, done, tag, secs=0.3):
+    def job():
+        gate.set()
+        time.sleep(secs)
+        done.append(tag)
+        return tag
+    return job
+
+
+def test_worker_stop_waits_for_the_running_and_queued_jobs():
+    import threading
+    from engine.device import Worker
+    w = Worker(_IdleManager(), poll_s=10)
+    w.start()
+    started, done = threading.Event(), []
+    first = w.call(_slow(started, done, "running"))
+    assert started.wait(5)
+    second = w.call(_slow(threading.Event(), done, "queued", 0.1))
+    w.stop()
+    assert done == ["running", "queued"]
+    assert first.result(timeout=0) == "running" and second.result(timeout=0) == "queued"
+
+
+def test_worker_rejects_calls_after_stop_promptly():
+    from engine.device import Worker, ShuttingDown
+    w = Worker(_IdleManager(), poll_s=10)
+    w.start()
+    w.stop()
+    t0 = time.monotonic()
+    with pytest.raises(ShuttingDown):
+        w.call(lambda: 1).result(timeout=5)
+    assert time.monotonic() - t0 < 0.5
+
+
+def test_worker_close_rejects_new_calls_but_finishes_queued_ones():
+    import threading
+    from engine.device import Worker, ShuttingDown
+    w = Worker(_IdleManager(), poll_s=10)
+    w.start()
+    started, done = threading.Event(), []
+    running = w.call(_slow(started, done, "running"))
+    assert started.wait(5)
+    w.close()
+    with pytest.raises(ShuttingDown):
+        w.call(lambda: 1).result(timeout=1)
+    w.stop()
+    assert running.result(timeout=0) == "running" and done == ["running"]
+
+
+def test_worker_drain_timeout_covers_an_api_call_and_is_logged(caplog):
+    import threading
+    from engine.api import Api
+    from engine.device import DRAIN_TIMEOUT_S, Worker
+    assert DRAIN_TIMEOUT_S >= Api.TIMEOUT_S
+    w = Worker(_IdleManager(), poll_s=10)
+    w.start()
+    gate, started = threading.Event(), threading.Event()
+    w.call(lambda: (started.set(), gate.wait(5)))
+    assert started.wait(5)
+    with caplog.at_level("WARNING", logger="cavalry"):
+        w.stop(timeout=0.2)
+    gate.set()
+    assert any("still writing" in r.getMessage() for r in caplog.records)

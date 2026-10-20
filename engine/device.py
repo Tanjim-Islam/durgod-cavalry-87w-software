@@ -19,6 +19,7 @@ log = logging.getLogger("cavalry")
 MIRROR_WARNING = "Saved to keyboard, but the local copy couldn't be saved"
 MIRROR_ERROR = "Couldn't save the local copy of your keyboard settings"
 CONFIG_BACKUP_EVERY_S = 60.0
+DRAIN_TIMEOUT_S = 65.0  # longer than Api.TIMEOUT_S, so a call the UI is still waiting on can finish
 
 
 class NotReady(RuntimeError):
@@ -26,6 +27,10 @@ class NotReady(RuntimeError):
 
 
 class VerifyError(LinkError):
+    pass
+
+
+class ShuttingDown(NotReady):
     pass
 
 
@@ -301,31 +306,49 @@ class DeviceManager:
 
 
 class Worker:
-    """Runs DeviceManager on one thread: queued calls plus a poll every poll_s."""
+    """Runs DeviceManager on one thread: queued calls plus a poll every poll_s.
+
+    Shutdown drains: calls already queued still run, new ones are refused."""
 
     def __init__(self, manager: DeviceManager, poll_s: float = 1.0):
         self.m, self.poll_s = manager, poll_s
         self._q: queue.Queue = queue.Queue()
-        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._closed = False
         self._t = threading.Thread(target=self._run, name="cavalry-device", daemon=True)
 
     def start(self) -> None:
         self._t.start()
 
-    def stop(self) -> None:
-        self._stop.set()
-        self._q.put(None)
-        self._t.join(timeout=5)
+    def close(self) -> None:
+        """Refuse new calls; the thread exits once the queued ones are done."""
+        with self._lock:
+            if not self._closed:
+                self._closed = True
+                self._q.put(None)
+
+    def stop(self, timeout: float = DRAIN_TIMEOUT_S) -> None:
+        self.close()
+        if not self._t.is_alive():
+            return
+        self._t.join(timeout=timeout)
+        if self._t.is_alive():
+            log.warning("keyboard worker still writing after %.0f s; exiting anyway", timeout)
 
     def call(self, fn, *args) -> Future:
         f: Future = Future()
-        self._q.put((f, fn, args))
+        with self._lock:
+            if not self._closed:
+                self._q.put((f, fn, args))
+                return f
+        f.set_exception(ShuttingDown("The app is closing"))
         return f
 
     def _run(self) -> None:
         next_poll = 0.0
-        while not self._stop.is_set():
-            timeout = max(0.0, next_poll - time.monotonic())
+        while True:
+            closing = self._closed
+            timeout = None if closing else max(0.0, next_poll - time.monotonic())
             try:
                 item = self._q.get(timeout=timeout)
             except queue.Empty:

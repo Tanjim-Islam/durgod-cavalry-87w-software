@@ -167,3 +167,20 @@ def test_short_api_errors_shortens_user_facing_tracebacks():
     assert f.filter(r2) is True and r2.getMessage() == crash and r2.levelno == logging.ERROR
     other = _record(tb, name="cavalry")
     assert f.filter(other) is True and other.getMessage() == tb
+
+
+def test_quit_refuses_new_device_calls_before_closing_windows(monkeypatch):
+    order = []
+    monkeypatch.setattr(app.webview, "create_window", lambda title, url, **kw: _Window(title, url, **kw))
+    w = app.Windows("C:/ui/index.html", start_hidden=False, on_quit=lambda: order.append("close worker"))
+    w.main.destroy = lambda: order.append("destroy main")
+    w.flyout.destroy = lambda: order.append("destroy flyout")
+    w.quit()
+    assert order == ["close worker", "destroy flyout", "destroy main"]
+
+
+def test_quit_still_closes_main_when_the_flyout_is_already_gone(wins):
+    def gone(): raise RuntimeError("disposed")
+    wins.flyout.destroy = gone
+    wins.quit()
+    assert ("destroy", ()) in wins.main.calls

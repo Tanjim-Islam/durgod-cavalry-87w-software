@@ -266,3 +266,45 @@ test("a failed rename keeps the form open with the typed name", async () => {
   await waitFor(() => expect(api.rename_profile).toHaveBeenCalledWith("Default", "Main"));
   expect(screen.getByRole("textbox", { name: "New name for Default" })).toHaveValue("Main");
 });
+
+test("Save is disabled for an empty or unchanged name", async () => {
+  installApi();
+  await useApp.getState().loadProfiles();
+  render(<Profiles />);
+  await userEvent.click(await screen.findByRole("button", { name: "Rename Default" }));
+  const input = screen.getByRole("textbox", { name: "New name for Default" });
+  const save = screen.getByRole("button", { name: "Save" });
+  expect(save).toBeDisabled();
+  await userEvent.clear(input);
+  expect(save).toBeDisabled();
+  await userEvent.type(input, "   ");
+  expect(save).toBeDisabled();
+  await userEvent.clear(input);
+  await userEvent.type(input, "Main");
+  expect(save).toBeEnabled();
+});
+
+test("a double Enter or Save fires rename_profile once, and Esc does nothing while it runs", async () => {
+  const api = installApi();
+  let release!: () => void;
+  const real = api.rename_profile.getMockImplementation()!;
+  api.rename_profile.mockImplementationOnce(() => new Promise((resolve) => { release = () => resolve(real("Default", "Main")); }));
+  await useApp.getState().loadProfiles();
+  render(<Profiles />);
+  await userEvent.click(await screen.findByRole("button", { name: "Rename Default" }));
+  const input = screen.getByRole("textbox", { name: "New name for Default" });
+  await userEvent.clear(input);
+  await userEvent.type(input, "Main{Enter}");
+  await waitFor(() => expect(api.rename_profile).toHaveBeenCalledTimes(1));
+  expect(input).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+  // Bypass the disabled controls: a second submit and Esc must both do nothing while in flight.
+  fireEvent.submit(input.closest("form")!);
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(api.rename_profile).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("textbox", { name: "New name for Default" })).toBeInTheDocument();
+  release();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Rename Main" })).toHaveFocus());
+  expect(api.rename_profile).toHaveBeenCalledTimes(1);
+});

@@ -19,6 +19,8 @@ export function Profiles() {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const inFlight = useRef(false); // sync guard: a second Enter or Save in the same tick must not rename again
   const renameBtns = useRef(new Map<string, HTMLButtonElement>());
   const focusRow = useRef<string | null>(null);
   useEffect(() => { void loadProfiles(); void loadBackups(); }, [loadProfiles, loadBackups]);
@@ -29,13 +31,16 @@ export function Profiles() {
   }, [profiles, renaming]);
 
   const ask = (c: Confirm) => { setConfirm(c); setOpen(true); };
-  const stopRename = (p: string) => { focusRow.current = p; setRenaming(null); };
+  const stopRename = (p: string) => { if (inFlight.current) return; focusRow.current = p; setRenaming(null); };
   const submitRename = async (old: string) => {
     const n = draft.trim();
-    if (!n || n === old) return;
-    if (await run<string[]>("rename_profile", old, n)) {
-      focusRow.current = n; setRenaming(null); await loadProfiles();
-    }
+    if (!n || n === old || inFlight.current) return;
+    inFlight.current = true; setSaving(true);
+    try {
+      if (await run<string[]>("rename_profile", old, n)) {
+        focusRow.current = n; await loadProfiles(); setRenaming(null); // reload first so the row never shows the old name
+      }
+    } finally { inFlight.current = false; setSaving(false); }
   };
   const doSave = async (n: string) => {
     if (await act("save_profile", n)) { setName(""); await loadProfiles(); toast("Profile saved"); }
@@ -87,13 +92,13 @@ export function Profiles() {
                 exit={{ opacity: 0, height: 0 }} className="flex items-center justify-between py-2 text-[13px]">
                 {renaming === p ? (
                   <form className="flex w-full items-center gap-1.5" onSubmit={(e) => { e.preventDefault(); void submitRename(p); }}>
-                    <input autoFocus aria-label={`New name for ${p}`} value={draft} maxLength={40}
+                    <input autoFocus aria-label={`New name for ${p}`} value={draft} maxLength={40} disabled={saving}
                       onChange={(e) => setDraft(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Escape") stopRename(p); }}
-                      className="flex-1 rounded-md border border-line bg-surface-2 px-2 py-1 text-[13px] outline-none focus:border-accent" />
-                    <button type="submit" disabled={!draft.trim() || draft.trim() === p}
+                      className="flex-1 rounded-md border border-line bg-surface-2 px-2 py-1 text-[13px] outline-none focus:border-accent disabled:opacity-60" />
+                    <button type="submit" disabled={saving || !draft.trim() || draft.trim() === p}
                       className="rounded-md bg-accent px-2.5 py-1 text-[13px] font-medium text-on-accent disabled:opacity-40">Save</button>
-                    <button type="button" onClick={() => stopRename(p)} className="rounded-md px-2 py-1 text-[13px] text-muted hover:text-ink">Cancel</button>
+                    <button type="button" disabled={saving} onClick={() => stopRename(p)} className="rounded-md px-2 py-1 text-[13px] text-muted hover:text-ink disabled:opacity-40">Cancel</button>
                   </form>
                 ) : (
                   <>

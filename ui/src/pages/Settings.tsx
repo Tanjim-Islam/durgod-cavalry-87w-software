@@ -1,5 +1,68 @@
+import { useEffect } from "react";
+import { motion } from "motion/react";
+import { Switch } from "@/components/ui/switch";
+import { Card } from "@/components/Card";
+import { LevelSlider } from "@/components/LevelSlider";
 import { PageShell } from "@/components/PageShell";
+import { useApp } from "@/state/app";
+
+const SLEEP = [[1, "30 s"], [2, "1 min"], [4, "2 min"], [6, "3 min"], [10, "5 min"], [20, "10 min"], [40, "20 min"]] as const;
+
+function Segmented<T extends string>({ label, value, options, onChange, disabled }: {
+  label: string; value: T | undefined; options: [T, string][]; onChange: (v: T) => void; disabled?: boolean }) {
+  return (
+    <div role="radiogroup" aria-label={label} className="inline-flex rounded-lg border border-line bg-surface-2 p-0.5">
+      {options.map(([v, text]) => (
+        <button key={v} type="button" role="radio" aria-checked={value === v} aria-label={text} disabled={disabled}
+          onClick={() => onChange(v)} className={`relative rounded-md px-3 py-1 text-[13px] ${value === v ? "text-on-accent" : "text-muted"}`}>
+          {value === v && <motion.span layoutId={`seg-${label}`} className="absolute inset-0 rounded-md bg-accent" />}
+          <span className="relative">{text}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function Settings() {
-  return <PageShell title="Settings"><div /></PageShell>;
+  const { state, settings, act, setAppSettings, loadSettings } = useApp();
+  useEffect(() => { void loadSettings(); }, [loadSettings]);
+  const s = state?.settings;
+  const off = !state?.connected || state.partial;
+  return (
+    <PageShell title="Settings" meta="Keyboard and app preferences">
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Card title="Layout">
+          <Segmented label="Win or Mac" value={s?.win_mac} disabled={off}
+            options={[["win", "Windows"], ["mac", "Mac"]]} onChange={(v) => void act("set_settings", v, null, null)} />
+        </Card>
+        <Card title="Sleep">
+          <label className="flex items-center justify-between text-[13px]">Keep lights on
+            <Switch aria-label="Keep lights on" checked={s?.sleep === 0} disabled={off} onCheckedChange={(v) => void act("set_keep_lights_on", v)} />
+          </label>
+          <label className="mt-3 flex items-center justify-between text-[13px]">Sleep after
+            <select aria-label="Sleep after" disabled={off || s?.sleep === 0} value={s?.sleep ?? 0}
+              onChange={(e) => void act("set_settings", null, Number(e.target.value), null)}
+              className="rounded-md border border-line bg-surface-2 px-2 py-1 text-[13px] disabled:opacity-40">
+              {s?.sleep === 0 && <option value={0}>Never</option>}
+              {s && s.sleep !== 0 && !SLEEP.some(([v]) => v === s.sleep) && <option value={s.sleep}>Custom ({s.sleep})</option>}
+              {SLEEP.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+            </select>
+          </label>
+        </Card>
+        <Card><LevelSlider label="Debounce" value={s?.debounce} max={4} disabled={off} onCommit={(v) => act("set_settings", null, null, v)} /></Card>
+        <Card title="Appearance">
+          <Segmented label="Theme" value={settings.theme}
+            options={[["dark", "Dark"], ["light", "Light"], ["system", "System"]]} onChange={(v) => void setAppSettings({ theme: v })} />
+        </Card>
+        <Card>
+          <label className="flex items-center justify-between text-[13px]">Start with Windows
+            <Switch aria-label="Start with Windows" checked={settings.autostart} onCheckedChange={(v) => void setAppSettings({ autostart: v })} />
+          </label>
+        </Card>
+        <Card title="About">
+          <p className="text-[13px] text-muted">Durgod Cavalry 87W · model 0x7B · {state?.link === "wired" ? "Cable" : state?.link === "radio" ? "2.4G" : "Not connected"}</p>
+        </Card>
+      </div>
+    </PageShell>
+  );
 }

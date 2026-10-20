@@ -123,8 +123,20 @@ export function createMock(emit: (e: DeviceEvent) => void) {
       emit({ name: "state", payload: {} });
       return { index: i, warning: null };
     },
-    async delete_macro(index: number) { await wait(); s.macros!.splice(index, 1); return done(); },
-    async clear_macros() { await wait(); s.macros = []; return done(); },
+    // Like the engine: keys playing the deleted macro are unbound, higher indexes shift down.
+    async delete_macro(index: number) {
+      await wait();
+      if (index >= s.macros!.length) fail(`No macro number ${index}`);
+      s.macros!.splice(index, 1);
+      s.layers = s.layers!.map((l) => l.map((a): Action => a.type !== "macro" ? a
+        : a.index === index ? { type: "none" } : a.index > index ? { ...a, index: a.index - 1 } : a));
+      return done();
+    },
+    async clear_macros() {
+      await wait(); s.macros = [];
+      s.layers = s.layers!.map((l) => l.map((a): Action => (a.type === "macro" ? { type: "none" } : a)));
+      return done();
+    },
     async set_palette(group: number, colors: RGB[]) { await wait(); s.palette![group] = colors; return done(); },
     async set_key_colors(colors: RGB[]) { await wait(); s.key_colors = colors; return done(); },
     async rename_profile(old: string, name: string) {

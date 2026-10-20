@@ -6,6 +6,7 @@ import { useApp, connectEvents } from "@/state/app";
 import { ConnectionPill } from "@/components/ConnectionPill";
 import { Lighting } from "@/pages/Lighting";
 import { Keys } from "@/pages/Keys";
+import { Macros } from "@/pages/Macros";
 import { Shortcuts } from "@/pages/Shortcuts";
 import { Profiles } from "@/pages/Profiles";
 import { Settings } from "@/pages/Settings";
@@ -14,7 +15,7 @@ import { Flyout } from "@/pages/Flyout";
 const PAGES = [
   { id: "lighting", label: "Lighting", icon: Lightbulb },
   { id: "keys", label: "Keys", icon: KbIcon },
-  { id: "macros", label: "Macros", icon: Wand2, soon: true },
+  { id: "macros", label: "Macros", icon: Wand2 },
   { id: "shortcuts", label: "Shortcuts", icon: Command },
   { id: "profiles", label: "Profiles", icon: Layers },
   { id: "settings", label: "Settings", icon: Cog },
@@ -67,6 +68,7 @@ export default function App() {
           <AnimatePresence mode="wait">
             {page === "lighting" && <Lighting key="l" />}
             {page === "keys" && <Keys key="k" />}
+            {page === "macros" && <Macros key="m" />}
             {page === "shortcuts" && <Shortcuts key="s" />}
             {page === "profiles" && <Profiles key="p" />}
             {page === "settings" && <Settings key="t" />}

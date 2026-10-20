@@ -7,10 +7,10 @@ import logging
 import threading
 import time
 
+from ..codec.macro import MAX_DELAY
 from .vkmap import VK_TO_HID, is_modifier
 
 log = logging.getLogger("cavalry")
-MAX_DELAY = 0xFFFFF
 
 
 class Recorder:
@@ -44,7 +44,8 @@ class Recorder:
             if down:
                 if hid in self._down:
                     return
-                if sum(1 for e in self._events if not e["release"]) >= self.max_events:
+                # keep room for this key's release and those stop() adds for keys still held
+                if len(self._events) + len(self._down) + 2 > self.max_events:
                     self.truncated = True
                     return
                 self._down.add(hid)
@@ -78,13 +79,21 @@ class KeyboardHook:
 
     def start(self) -> None:
         self._thread.start()
-        if not self._ready.wait(3) or not self._installed:
+        if not self._ready.wait(3):
+            self.stop()   # tear down a hook that installs late
+            raise RuntimeError("Couldn't start the keyboard recorder")
+        if not self._installed:
             raise RuntimeError("Couldn't start the keyboard recorder")
 
     def stop(self) -> None:
         if self._thread_id:
-            ctypes.windll.user32.PostThreadMessageW(self._thread_id, 0x0012, 0, 0)  # WM_QUIT
+            u32 = ctypes.WinDLL("user32", use_last_error=True)
+            u32.PostThreadMessageW.argtypes = [wt.DWORD, wt.UINT, wt.WPARAM, wt.LPARAM]
+            if not u32.PostThreadMessageW(self._thread_id, 0x0012, 0, 0):  # WM_QUIT
+                log.warning("could not signal the recorder thread: %s", ctypes.get_last_error())
             self._thread.join(timeout=2)
+            if self._thread.is_alive():
+                log.warning("the recorder thread did not exit")
 
     def _run(self) -> None:
         u32, k32 = ctypes.WinDLL("user32", use_last_error=True), ctypes.WinDLL("kernel32")
@@ -99,6 +108,7 @@ class KeyboardHook:
         u32.SetWindowsHookExW.restype = wt.HHOOK
         u32.CallNextHookEx.argtypes = [wt.HHOOK, ctypes.c_int, wt.WPARAM, wt.LPARAM]
         u32.CallNextHookEx.restype = LRESULT
+        u32.UnhookWindowsHookEx.argtypes = [wt.HHOOK]
         k32.GetModuleHandleW.restype = wt.HMODULE
 
         @PROC

@@ -106,6 +106,7 @@ class Bridge:
         self._closed = False
         self._clash_path: str | None = None
         self._recording = None
+        self._rec_lock = threading.Lock()
         for name in API_METHODS:
             setattr(self, name, _plain(getattr(api, name)))
         api.subscribe(self.push)
@@ -184,33 +185,36 @@ class Bridge:
             raise Exception(str(e)) from None
 
     def record_macro_start(self):
-        if self._recording:
-            raise Exception("Already recording")
-        rec = Recorder()
-        rec.start()
-        hook = KeyboardHook(rec.on_key)
-        try:
-            hook.start()
-        except Exception as e:
-            raise Exception(str(e)) from None
-        self._recording = (rec, hook)
+        with self._rec_lock:
+            if self._recording:
+                raise Exception("Already recording")
+            rec = Recorder()
+            rec.start()
+            hook = KeyboardHook(rec.on_key)
+            try:
+                hook.start()
+            except Exception as e:
+                raise Exception(str(e)) from None
+            self._recording = (rec, hook)
 
     def record_macro_stop(self):
-        if not self._recording:
-            raise Exception("Not recording")
-        rec, hook = self._recording
-        self._recording = None
-        hook.stop()
-        return rec.stop()
+        with self._rec_lock:
+            if not self._recording:
+                raise Exception("Not recording")
+            rec, hook = self._recording
+            self._recording = None
+            hook.stop()
+            return rec.stop()
 
     def _stop_recording(self) -> None:
         """Shutdown only: drop an active recording and its hook."""
-        rec, self._recording = self._recording, None
-        if rec:
-            try:
-                rec[1].stop()
-            except Exception:
-                log.exception("could not stop the keyboard recorder")
+        with self._rec_lock:
+            rec, self._recording = self._recording, None
+            if rec:
+                try:
+                    rec[1].stop()
+                except Exception:
+                    log.exception("could not stop the keyboard recorder")
 
     def show_main(self): self._host.show_main()
     def hide_flyout(self): self._host.hide_flyout()

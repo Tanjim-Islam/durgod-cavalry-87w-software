@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from contextlib import suppress
@@ -16,6 +17,7 @@ from .codec.keymap import decode_layer
 from .codec.macro import decode_macros
 from .codec.snapshot import Snapshot, SnapshotError
 
+log = logging.getLogger("cavalry")
 NAME_RE = re.compile(r"[\w .()-]{1,40}")
 BACKUP_RE = re.compile(r"factory|\d{8}-\d{6}-\d{6}")
 RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
@@ -231,14 +233,24 @@ class Store:
         if new.lower() != old.lower() and (self.root / "profiles" / f"{new}.json").exists():
             raise ProfileExists(f"a profile named {new!r} already exists")
         s = self.load_profile(old)
-        aside = src.with_name(src.name + ".renaming")   # also makes case-only renames work on NTFS
+        if old.lower() != new.lower():
+            self.save_profile(new, s)
+            try:
+                src.unlink(missing_ok=True)
+            except OSError:
+                log.warning("renamed %r to %r but could not remove the old file", old, new)
+            return new
+        aside = src.with_name(src.name + ".renaming")   # case-only: the same file on NTFS
         src.replace(aside)
         try:
             self.save_profile(new, s)
         except BaseException:
             aside.replace(src)
             raise
-        aside.unlink()
+        try:
+            aside.unlink(missing_ok=True)
+        except OSError:
+            log.warning("could not remove %s", aside.name)
         return new
 
     def export_profile(self, name: str, path: Path) -> None:

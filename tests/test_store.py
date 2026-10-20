@@ -389,3 +389,26 @@ def test_rename_profile(tmp_path, snap):
     with pytest.raises(StoreError):
         st.rename_profile("Games", "../x")
     assert st.rename_profile("Games", "games") == "games" and st.list_profiles() == ["Work", "games"]
+
+
+def test_rename_stores_new_name_and_removes_old(tmp_path, snap):
+    st = Store(tmp_path)
+    st.save_profile("Gaming", snap)
+    st.rename_profile("Gaming", "Games")
+    assert json.loads((tmp_path / "profiles" / "Games.json").read_text())["name"] == "Games"
+    assert not (tmp_path / "profiles" / "Gaming.json").exists()
+
+
+def test_case_only_rename_failure_restores_original(tmp_path, snap, monkeypatch):
+    st = Store(tmp_path)
+    st.save_profile("Gaming", snap)
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(st, "save_profile", boom)
+    with pytest.raises(OSError):
+        st.rename_profile("Gaming", "gaming")
+    monkeypatch.undo()
+    assert st.list_profiles() == ["Gaming"]
+    assert st.load_profile("Gaming").to_json() == snap.to_json()
+    assert not list((tmp_path / "profiles").glob("*.renaming"))

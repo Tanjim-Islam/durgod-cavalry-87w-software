@@ -309,3 +309,23 @@ def test_stop_ends_an_active_recording(b, monkeypatch):
         b.record_macro_start()
     b.stop()
     assert calls == ["stop"]
+
+
+def test_concurrent_record_starts_install_one_hook(b, monkeypatch):
+    started, errors = [], []
+
+    class SlowHook:
+        def __init__(self, cb): pass
+        def start(self): started.append(1); time.sleep(0.3)
+        def stop(self): pass
+    monkeypatch.setattr("engine.shell.bridge.KeyboardHook", SlowHook)
+
+    def go():
+        try:
+            b.record_macro_start()
+        except Exception as e:
+            errors.append(str(e))
+    ts = [threading.Thread(target=go) for _ in range(2)]
+    for t in ts: t.start()
+    for t in ts: t.join()
+    assert len(started) == 1 and errors == ["Already recording"]

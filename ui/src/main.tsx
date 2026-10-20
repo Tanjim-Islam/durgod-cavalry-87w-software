@@ -2,7 +2,6 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import App from "./App";
-import { waitForBridge } from "@/bridge/api";
+import { Boot } from "./Boot";
 
-void waitForBridge().then(() =>
-  createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>));
+createRoot(document.getElementById("root")!).render(<StrictMode><Boot><App /></Boot></StrictMode>);

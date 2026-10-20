@@ -25,10 +25,12 @@ export default function App() {
   const [page, setPage] = useState<PageId>("lighting");
   const [route, setRoute] = useState(location.hash);
   useEffect(() => {
-    connectEvents(); void refresh(); void loadSettings();
+    const load = () => { void refresh(); void loadSettings(); };
+    connectEvents(); load();
     const h = () => setRoute(location.hash);
     addEventListener("hashchange", h);
-    return () => removeEventListener("hashchange", h);
+    addEventListener("pywebviewready", load);
+    return () => { removeEventListener("hashchange", h); removeEventListener("pywebviewready", load); };
   }, [refresh, loadSettings]);
 
   if (route === "#/flyout") return <MotionConfig reducedMotion="user"><Flyout /><Toaster position="top-center" /></MotionConfig>;

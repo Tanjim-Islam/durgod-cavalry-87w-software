@@ -137,14 +137,15 @@ def setup_logging(log_dir: Path) -> None:
 
 
 class Windows:
-    def __init__(self, url: str, start_hidden: bool, on_quit=lambda: None, on_session_end=lambda: None):
+    def __init__(self, url: str, start_hidden: bool, on_quit=lambda: None, on_session_end=lambda: None,
+                 on_hide=lambda: None):
         self.main = webview.create_window(TITLE, url, width=1180, height=760, min_size=(980, 640),
                                           hidden=start_hidden, background_color="#1a1a1a")
         self.flyout = webview.create_window("Cavalry flyout", url + "#/flyout", width=FLYOUT_SIZE[0],
                                             height=FLYOUT_SIZE[1], frameless=True, on_top=True, hidden=True,
                                             resizable=False, background_color="#1a1a1a", easy_drag=False)
         self._quitting = False
-        self._on_quit, self._on_session_end = on_quit, on_session_end
+        self._on_quit, self._on_session_end, self._on_hide = on_quit, on_session_end, on_hide
         self._courier = Courier()
         self.main.events.closing += self._on_close
         self.flyout.events.closing += self._on_flyout_close
@@ -157,6 +158,7 @@ class Windows:
     def _on_close(self):
         if self._quitting or win32api.GetSystemMetrics(SM_SHUTTINGDOWN):
             return True
+        _quietly(self._on_hide)
         self.main.hide()
         return False
 
@@ -236,7 +238,8 @@ def main(argv: list[str]) -> int:
     setup_logging(root / "logs")
     try:
         store, manager, worker, api = build_engine(root)
-        windows = Windows(ui_url(dev), start_hidden=tray_only, on_quit=worker.close, on_session_end=worker.stop)
+        windows = Windows(ui_url(dev), start_hidden=tray_only, on_quit=worker.close, on_session_end=worker.stop,
+                          on_hide=lambda: bridge.pause_recording())
         bridge = Bridge(api, windows, Autostart(launch_command()))
         fns = exposed_functions(bridge)
         for w in (windows.main, windows.flyout):

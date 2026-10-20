@@ -120,6 +120,30 @@ def test_main_close_hides_unless_quitting(wins):
     assert ("destroy", ()) in wins.main.calls and ("destroy", ()) in wins.flyout.calls
 
 
+def test_main_close_ends_a_recording_but_quit_and_session_end_do_not(monkeypatch):
+    monkeypatch.setattr(app.webview, "create_window", lambda title, url, **kw: _Window(title, url, **kw))
+    monkeypatch.setattr(app.win32api, "GetSystemMetrics", lambda i: 0)
+    hidden = []
+    w = app.Windows("C:/ui/index.html", start_hidden=False, on_hide=lambda: hidden.append(1))
+    w.main.events.closing.fire()
+    assert hidden == [1]
+    w.minimize()                        # minimizing is not a close: recording goes on
+    assert hidden == [1]
+    w.quit()
+    w.main.events.closing.fire()
+    assert hidden == [1]
+
+
+def test_main_close_survives_a_failing_hide_hook(monkeypatch):
+    monkeypatch.setattr(app.webview, "create_window", lambda title, url, **kw: _Window(title, url, **kw))
+    monkeypatch.setattr(app.win32api, "GetSystemMetrics", lambda i: 0)
+
+    def boom(): raise RuntimeError("x")
+    w = app.Windows("C:/ui/index.html", start_hidden=False, on_hide=boom)
+    assert w.main.events.closing.fire() == [False]
+    assert ("hide", ()) in w.main.calls
+
+
 def test_flyout_close_hides_unless_quitting(wins):
     assert wins.flyout.events.closing.fire() == [False]
     assert ("hide", ()) in wins.flyout.calls

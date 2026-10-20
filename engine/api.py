@@ -93,7 +93,7 @@ def _macros(raw: bytes) -> list:
         return decode_macros(raw)
     except MacroError as e:
         raise ApiError(f"The keyboard's macro memory can't be read ({e}). "
-                       "Clear all macros (clear_macros) to start fresh.") from e
+                       "Clear all macros to start fresh.") from e
 
 
 def _lighting(c: Config) -> dict:
@@ -127,7 +127,8 @@ def _colors(name: str, v, n: int) -> list[tuple[int, int, int]]:
     return out
 
 
-FN_SLOT = 59                      # base-layer Fn key, never remappable
+FN_SLOT = 59                      # Fn key, never remappable on the base layer or the WASD swap
+FN_LAYERS = (0, 3)                # layer 3 overlays the base layer, so Fn must stay put there too
 _BLOCKED_SYSTEM = {0x04, 0x10}    # factory reset, clear Bluetooth pairing
 
 
@@ -273,7 +274,7 @@ class Api:
     def remap_key(self, layer: int, slot: int, action: dict):
         _position(layer, slot)
         a = action_from_dict(action)
-        if (layer == 0 and slot == FN_SLOT) or (isinstance(a, System) and a.code in _BLOCKED_SYSTEM):
+        if (layer in FN_LAYERS and slot == FN_SLOT) or (isinstance(a, System) and a.code in _BLOCKED_SYSTEM):
             raise ApiError("That action can't be assigned from the app.")
         state = self._set_slot(layer, slot, a, check_macro=True)
         return _warn(state, CABLE_WARNING if wired_unsafe(a) else None)

@@ -296,6 +296,23 @@ def test_recorder_methods(b, monkeypatch):
         b.record_macro_stop()
 
 
+def test_pause_recording_keeps_the_events_for_the_next_stop(b, monkeypatch):
+    alive = set()
+
+    class FakeHook:
+        def __init__(self, cb): pass
+        def start(self): alive.add(self)
+        def stop(self): alive.discard(self)
+    monkeypatch.setattr("engine.shell.bridge.KeyboardHook", FakeHook)
+    b.pause_recording()                      # nothing recording: no-op
+    b.record_macro_start()
+    b.pause_recording()
+    assert not alive
+    assert b.record_macro_stop() == {"events": [], "truncated": False}
+    with pytest.raises(Exception, match="Not recording"):
+        b.record_macro_stop()
+
+
 def test_stop_ends_an_active_recording(b, monkeypatch):
     calls = []
 

@@ -221,10 +221,21 @@ class Bridge:
         with self._rec_lock:
             if not self._recording or self._recording[2] is not threading.current_thread():
                 return
-            rec = self._recording[0]
-            self._end_recording()
-            self._rec_done = rec.stop()
+            self._park_recording()
             log.warning("macro recording stopped after %.0f s", self._rec_timeout_s)
+
+    def _park_recording(self) -> None:
+        """Caller holds _rec_lock: end an active recording, keep its events for the next stop call."""
+        rec = self._recording[0]
+        self._end_recording()
+        self._rec_done = rec.stop()
+
+    @_hidden
+    def pause_recording(self) -> None:
+        """The window went to the tray: stop listening to keys but keep what was recorded."""
+        with self._rec_lock:
+            if self._recording:
+                self._park_recording()
 
     def _end_recording(self) -> None:
         """Caller holds _rec_lock: drop an active recording, its hook and its timer."""

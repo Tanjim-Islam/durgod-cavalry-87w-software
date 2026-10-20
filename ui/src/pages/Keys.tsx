@@ -22,7 +22,7 @@ export function Keys() {
   const off = !state?.connected || state.partial || !actions;
   const marks = useMemo(() => new Set(actions ? actions.flatMap((a, s) => (isRemapped(layer, s, a) ? [s] : [])) : []), [actions, layer]);
   const meta = !state?.connected ? "Connect the keyboard to change keys"
-    : off ? ((!state.partial && state.layers_error) || "Couldn't read the key layout. Reconnect the keyboard.")
+    : off ? (state.layers_error || "Couldn't read the key layout. Reconnect the keyboard.")
     : "Click a key to change what it does";
   const cap = KEYS.find((k) => k.slot === slot);
   const current = slot != null && actions ? actions[slot] : null;

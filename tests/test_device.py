@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from engine.codec.config import Config
@@ -579,3 +581,92 @@ def test_worker_logs_poll_tracebacks(env, caplog):
             w.stop()
     rec = [r for r in caplog.records if r.name == "cavalry"]
     assert rec and rec[0].exc_info and "error" in ev
+
+
+def fail_reads(monkeypatch, filename, times=1):
+    real = Path.read_text
+    left = [times]
+
+    def flaky(self, *a, **k):
+        if self.name == filename and left[0]:
+            left[0] -= 1
+            raise PermissionError("sharing violation")
+        return real(self, *a, **k)
+    monkeypatch.setattr(Path, "read_text", flaky)
+
+
+def test_transient_factory_read_error_never_recaptures_factory(env, monkeypatch):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    fpath = st.root / "backups" / "factory.json"
+    original = fpath.read_text()
+    kb.state = remap(kb.state.copy())             # user-modified state
+    fail_reads(monkeypatch, "factory.json", times=3)
+    reconnect(dm, clock, state)
+    dm.apply(set_sleep(0))
+    assert fpath.read_text() == original
+    assert not list(fpath.parent.glob("factory.corrupt-*.json"))
+
+
+def test_transient_mirror_read_error_on_radio_connect_keeps_mirror(env, monkeypatch):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    mirror = st.root / "mirror.json"
+    original = mirror.read_text()
+    fail_reads(monkeypatch, "mirror.json")
+    state["kind"] = "radio"
+    connect(dm, clock)
+    assert dm.link is None and "error" in ev
+    assert mirror.read_text() == original
+    assert not list(st.root.glob("mirror.corrupt-*.json"))
+    clock.t += 5.1
+    dm.poll()                                     # retries later and succeeds
+    assert dm.link is not None and dm.partial is False
+
+
+def test_transient_mirror_read_error_on_wired_connect_keeps_mirror(env, monkeypatch):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    mirror = st.root / "mirror.json"
+    original = mirror.read_text()
+    state["kind"] = None
+    dm.poll()
+    fail_reads(monkeypatch, "mirror.json")
+    state["kind"] = "wired"
+    connect(dm, clock)
+    assert dm.link is None and "error" in ev
+    assert mirror.read_text() == original
+    assert not list(st.root.glob("mirror.corrupt-*.json"))
+
+
+def test_transient_mirror_read_error_at_startup_keeps_file(tmp_path, fixture_blocks, monkeypatch):
+    kb = FakeKeyboard(fixture_blocks)
+    st = Store(tmp_path)
+    st.save_mirror(kb.state)
+    fail_reads(monkeypatch, "mirror.json")
+    dm = DeviceManager(st, detect=lambda: None, open_link=None)
+    assert dm.snapshot is None
+    assert (tmp_path / "mirror.json").exists()
+    assert not list(tmp_path.glob("mirror.corrupt-*.json"))
+
+
+def test_failed_backup_does_not_suppress_next_config_backup(env, monkeypatch):
+    kb, st, clock, state, dm, ev = env
+    connect(dm, clock)
+    real = st.save_backup
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(st, "save_backup", boom)
+    before = kb.state.copy()
+    with pytest.raises(OSError):
+        dm.apply(set_brightness(1))
+    assert kb.state == before                     # nothing written
+    clock.t += 5
+    with pytest.raises(OSError):
+        dm.apply(set_brightness(2))               # still tries a backup, still refuses to write
+    assert kb.state == before
+    monkeypatch.setattr(st, "save_backup", real)
+    clock.t += 5
+    dm.apply(set_brightness(3))
+    assert len(rolling(st)) == 1

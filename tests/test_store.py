@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -330,3 +331,46 @@ def test_import_profile_rejects_undecodable_macros(tmp_path, snap):
     with pytest.raises(StoreError):
         st.import_profile(_profile_file(tmp_path, bad))
     assert st.list_profiles() == []
+
+
+def _fail_reads_once(monkeypatch, filename):
+    real = Path.read_text
+    left = [1]
+
+    def flaky(self, *a, **k):
+        if self.name == filename and left[0]:
+            left[0] -= 1
+            raise PermissionError("sharing violation")
+        return real(self, *a, **k)
+    monkeypatch.setattr(Path, "read_text", flaky)
+
+
+def test_transient_read_error_on_factory_is_not_corruption(tmp_path, snap, monkeypatch):
+    st = Store(tmp_path)
+    st.save_backup(snap, factory=True)
+    _fail_reads_once(monkeypatch, "factory.json")
+    assert st.has_factory() is True
+    assert (tmp_path / "backups" / "factory.json").exists()
+    assert not list((tmp_path / "backups").glob("factory.corrupt-*.json"))
+    assert st.load_backup("factory").to_json() == snap.to_json()
+
+
+def test_factory_never_replaced_while_unreadable(tmp_path, snap, monkeypatch):
+    st = Store(tmp_path)
+    st.save_backup(snap, factory=True)
+    monkeypatch.setattr(Path, "read_text", lambda self, *a, **k: (_ for _ in ()).throw(OSError("locked")))
+    with pytest.raises(StoreError, match="already exists"):
+        st.save_backup(snap, factory=True)
+    with pytest.raises(StoreError, match="cannot read"):
+        st.load_backup("factory")
+
+
+def test_transient_read_error_on_mirror_raises_and_keeps_file(tmp_path, snap, monkeypatch):
+    st = Store(tmp_path)
+    st.save_mirror(snap)
+    _fail_reads_once(monkeypatch, "mirror.json")
+    with pytest.raises(StoreError, match="cannot read"):
+        st.load_mirror_or_none()
+    assert (tmp_path / "mirror.json").exists()
+    assert not list(tmp_path.glob("mirror.corrupt-*.json"))
+    assert st.load_mirror_or_none().to_json() == snap.to_json()

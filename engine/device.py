@@ -12,7 +12,7 @@ from .codec.config import OFF_LINK
 from .codec.snapshot import Snapshot
 from .links.base import Link, LinkError, NotSupported
 from .protocol import MODEL_ID
-from .store import Store
+from .store import Store, StoreError
 
 log = logging.getLogger("cavalry")
 
@@ -55,7 +55,11 @@ class DeviceManager:
         self.stable_s = stable_s
         self.kind: str | None = None
         self.link: Link | None = None
-        self.snapshot: Snapshot | None = store.load_mirror_or_none()
+        try:
+            self.snapshot: Snapshot | None = store.load_mirror_or_none()
+        except StoreError as e:
+            log.warning("could not read mirror at startup: %s", e)
+            self.snapshot = None
         self.partial = False
         self.asleep = False
         self.last_warning: str | None = None
@@ -182,6 +186,7 @@ class DeviceManager:
                 snap = link.read_all()
                 if not self.store.has_factory():
                     factory_problem = self._capture_factory(link, snap)
+                prev = self.store.load_mirror_or_none()
                 partial = False
             else:
                 cfg = link.read_config()
@@ -198,7 +203,6 @@ class DeviceManager:
         if factory_problem:
             self._emit("error", {"message": f"{factory_problem}. Will retry on the next connection."})
         if link.kind == "wired":
-            prev = self.store.load_mirror_or_none()
             changed = [b for b in prev.changed_blocks(snap) if b != "config"] if prev else []
             if changed:
                 self._emit("mirror_mismatch", {"blocks": changed})
@@ -269,8 +273,9 @@ class DeviceManager:
             last = self._last_config_backup
             if last is not None and now - last < CONFIG_BACKUP_EVERY_S:
                 return
-            self._last_config_backup = now
         self.store.save_backup(base, label="before change")
+        if blocks == ["config"]:
+            self._last_config_backup = now
 
     def _push(self, target: Snapshot, blocks: list[str]) -> None:
         for name in blocks:

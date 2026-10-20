@@ -26,6 +26,10 @@ class StoreError(ValueError):
     pass
 
 
+class StoreReadError(StoreError):
+    """The file could not be read right now (I/O error); its content is unknown, not bad."""
+
+
 class ProfileExists(StoreError):
     pass
 
@@ -69,8 +73,14 @@ class Store:
 
     def _read(self, path: Path) -> dict:
         try:
-            d = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as e:
+            text = path.read_text(encoding="utf-8")
+        except OSError as e:
+            raise StoreReadError(f"cannot read {path.name}: {e}") from e
+        except ValueError as e:  # not valid UTF-8
+            raise StoreError(f"cannot read {path.name}: {e}") from e
+        try:
+            d = json.loads(text)
+        except ValueError as e:
             raise StoreError(f"cannot read {path.name}: {e}") from e
         if not isinstance(d, dict):
             raise StoreError(f"{path.name} is not a JSON object")
@@ -117,9 +127,14 @@ class Store:
             raise StoreError(f"mirror.json: {e}") from e
 
     def load_mirror_or_none(self) -> Snapshot | None:
-        """The mirror, or None when missing or unreadable (an unreadable one is set aside)."""
+        """The mirror, or None when missing or corrupt (a corrupt one is set aside).
+
+        A transient read error raises StoreReadError and leaves the file alone.
+        """
         try:
             return self.load_mirror()
+        except StoreReadError:
+            raise
         except StoreError:
             self._set_aside(self.root / "mirror.json")
             return None
@@ -185,6 +200,8 @@ class Store:
             return False
         try:
             self._snapshot(self._read(p), "factory")
+        except StoreReadError:
+            return True  # present but unreadable right now: never capture a new one over it
         except StoreError:
             self._set_aside(p)
             return False

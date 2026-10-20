@@ -20,3 +20,10 @@ test("vertical wheel scrolls horizontally", () => {
   fireEvent.wheel(scroller, { deltaY: 120 });
   expect(scroller.scrollLeft).toBe(120);
 });
+
+test("horizontal-dominant wheel is left alone, vertical is prevented", () => {
+  render(<EffectRow effects={effects} value={1} onChange={() => {}} />);
+  const scroller = screen.getByRole("radiogroup");
+  expect(fireEvent.wheel(scroller, { deltaY: 120 })).toBe(false);
+  expect(fireEvent.wheel(scroller, { deltaX: 120, deltaY: 5 })).toBe(true);
+});

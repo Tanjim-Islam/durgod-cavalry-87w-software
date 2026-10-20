@@ -9,10 +9,21 @@ export function EffectRow({ effects, value, onChange, disabled }: Props) {
     ref.current?.querySelector<HTMLElement>("[aria-checked=true]")
       ?.scrollIntoView?.({ inline: "center", block: "nearest", behavior: "smooth" });
   }, [value]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Native non-passive listener so a sideways scroll doesn't also scroll the page.
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
   return (
     <div ref={ref} role="radiogroup" aria-label="Effect"
-      className="no-scrollbar fade-right overflow-x-auto overscroll-x-contain"
-      onWheel={(e) => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY; }}>
+      className="no-scrollbar fade-right overflow-x-auto overscroll-x-contain">
       <div className="flex w-max gap-1.5 pr-10">
         {effects.map((e) => {
           const on = e.id === value;

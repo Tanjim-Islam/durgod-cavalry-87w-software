@@ -27,3 +27,15 @@ export const tap = (hid: number, delay = 16): MacroEvent[] =>
 export const click = (button: number, delay = 16): MacroEvent[] =>
   [{ kind: "mouse_button", code: button, release: false, delay_ms: delay }, { kind: "mouse_button", code: button, release: true, delay_ms: delay }];
 export const totalMs = (m: Macro) => m.events.reduce((n, e) => n + e.delay_ms, 0);
+// Names of keys, modifiers or buttons pressed but never released, in press order.
+export function heldAtEnd(events: MacroEvent[]): string[] {
+  const held = new Map<string, string>();
+  for (const e of events) {
+    if (!["key", "modifier", "mouse_button"].includes(e.kind)) continue;
+    const id = `${e.kind}:${e.code}`;
+    if (e.release) held.delete(id);
+    else held.set(id, eventLabel(e).replace(/ down$/, ""));
+  }
+  return [...held.values()];
+}
+export const clampRepeat = (text: string) => Math.min(255, Math.max(1, Math.round(Number(text)) || 1));

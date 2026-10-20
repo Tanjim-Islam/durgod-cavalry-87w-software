@@ -4,6 +4,7 @@ import { expect, test, vi, type Mock } from "vitest";
 import { createMock } from "@/bridge/mock";
 import type { KbState } from "@/bridge/types";
 import { useApp } from "@/state/app";
+import { tap } from "@/lib/macro";
 import { Macros } from "./Macros";
 
 // Route the bridge through a spied copy of the mock engine.
@@ -33,17 +34,77 @@ test("record, name, save and assign a macro", async () => {
 });
 
 test("storage meter and delete confirm", async () => {
-  await useApp.getState().refresh();
-  render(<Macros />);
-  const meter = await screen.findByRole("meter", { name: "Macro storage" });
-  expect(meter).toHaveAttribute("aria-valuemax", "4096");
-  expect(meter).toHaveAttribute("aria-valuenow", String(4 + 1 + 4 + 16));
-  await userEvent.click(screen.getByRole("button", { name: "Macro 1: Hi" }));
-  await userEvent.click(screen.getByRole("button", { name: "Delete" }));
-  expect(await screen.findByText(/Keys that play this macro are unbound/)).toBeInTheDocument();
-  await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
-  await waitFor(() => expect(useApp.getState().state?.macros).toEqual([]));
-  expect(useApp.getState().state?.layers?.[1][51]).toEqual({ type: "none" });
+  const api = installApi();
+  try {
+    await api.save_macro(null, { name: "Seed", events: tap(0x04) });
+    await api.remap_key(1, 51, { type: "macro", index: 0, mode: 1, count: 1 });
+    await useApp.getState().refresh();
+    render(<Macros />);
+    const meter = await screen.findByRole("meter", { name: "Macro storage" });
+    expect(meter).toHaveAttribute("aria-valuemax", "4096");
+    expect(meter).toHaveAttribute("aria-valuenow", String(4 + 1 + 8 + 8));
+    await userEvent.click(screen.getByRole("button", { name: "Macro 1: Seed" }));
+    expect(screen.getByRole("spinbutton", { name: "Delay before event 1, A down" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Remove event 2, A up" }));
+    expect(screen.getByText("This macro leaves A held down")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(await screen.findByText(/Keys that play this macro are unbound/)).toBeInTheDocument();
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(useApp.getState().state?.macros).toEqual([]));
+    expect(useApp.getState().state?.layers?.[1][51]).toEqual({ type: "none" });
+  } finally { delete window.pywebview; }
+});
+
+test("stop recording stays reachable when the macros can't be read", async () => {
+  const api = installApi();
+  try {
+    await useApp.getState().refresh();
+    render(<Macros />);
+    await userEvent.click(await screen.findByRole("button", { name: "New macro" }));
+    await userEvent.click(screen.getByRole("button", { name: "Record" }));
+    await screen.findByRole("button", { name: "Stop recording" });
+    const real = api.get_state.getMockImplementation()!;
+    api.get_state.mockImplementation(async () => ({ ...((await real()) as KbState), macros: null, macros_error: "Macro memory is corrupt" }));
+    await useApp.getState().refresh();
+    expect(await screen.findByText("Macro memory is corrupt")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+    await waitFor(() => expect(api.record_macro_stop).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop recording" })).not.toBeInTheDocument());
+  } finally { delete window.pywebview; }
+});
+
+test("recording stops when the open macro goes away", async () => {
+  const api = installApi();
+  try {
+    await api.save_macro(null, { name: "Seed", events: tap(0x04) });
+    await useApp.getState().refresh();
+    render(<Macros />);
+    await userEvent.click(await screen.findByRole("button", { name: "Macro 1: Seed" }));
+    await userEvent.click(screen.getByRole("button", { name: "Record" }));
+    await screen.findByRole("button", { name: "Stop recording" });
+    await api.delete_macro(0);
+    await useApp.getState().refresh();
+    await waitFor(() => expect(api.record_macro_stop).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop recording" })).not.toBeInTheDocument());
+  } finally { delete window.pywebview; }
+});
+
+test("leaving while the recorder is starting still stops it", async () => {
+  const api = installApi();
+  try {
+    let release!: () => void;
+    const real = api.record_macro_start.getMockImplementation()!;
+    api.record_macro_start.mockImplementation(() => new Promise<void>((r) => { release = () => void real().then(() => r()); }));
+    await useApp.getState().refresh();
+    const { unmount } = render(<Macros />);
+    await userEvent.click(await screen.findByRole("button", { name: "New macro" }));
+    await userEvent.click(screen.getByRole("button", { name: "Record" }));
+    expect(screen.getByRole("button", { name: "Record" })).toBeDisabled();
+    unmount();
+    expect(api.record_macro_stop).not.toHaveBeenCalled();
+    release();
+    await waitFor(() => expect(api.record_macro_stop).toHaveBeenCalledTimes(1));
+  } finally { delete window.pywebview; }
 });
 
 test("assigning skips the base-layer Fn key", async () => {

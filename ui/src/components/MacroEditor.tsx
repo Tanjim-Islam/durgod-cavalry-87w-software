@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ArrowDown, ArrowUp, X } from "lucide-react";
 import type { Macro, MacroEvent } from "@/bridge/types";
 import { HID_KEYS, NKRO_MAX } from "@/lib/hid";
-import { DELAY_MAX, MOUSE_BUTTONS, NAME_MAX, click, eventLabel, tap, totalMs } from "@/lib/macro";
+import { DELAY_MAX, MOUSE_BUTTONS, NAME_MAX, click, eventLabel, heldAtEnd, tap, totalMs } from "@/lib/macro";
 
 const GROUPS = [...new Set(HID_KEYS.map((k) => k.group))];
 const field = "rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-[13px] outline-none focus:border-accent disabled:opacity-50";
@@ -24,6 +24,7 @@ export function MacroEditor({ macro, onChange, disabled }: { macro: Macro; onCha
   const setDelay = (i: number, v: number) =>
     setEvents(events.map((e, j) => (j === i ? { ...e, delay_ms: Math.min(DELAY_MAX, Math.max(0, Math.round(v) || 0)) } : e)));
   const cableOnly = events.some((e) => e.kind === "key" && e.code > NKRO_MAX);
+  const held = heldAtEnd(events);
 
   return (
     <div className="flex flex-col gap-3">
@@ -35,11 +36,11 @@ export function MacroEditor({ macro, onChange, disabled }: { macro: Macro; onCha
       ) : (
         <ol aria-label="Events" className="no-scrollbar max-h-72 overflow-y-auto rounded-lg border border-line">
           {events.map((e, i) => {
-            const label = eventLabel(e);
+            const label = `event ${i + 1}, ${eventLabel(e)}`;
             return (
               <li key={i} className="flex items-center gap-2 border-b border-line px-2.5 py-1 text-[13px] last:border-b-0">
                 <span className="w-6 text-right text-[11px] text-muted" aria-hidden="true">{i + 1}</span>
-                <span className="flex-1 truncate">{label}</span>
+                <span className="flex-1 truncate">{eventLabel(e)}</span>
                 <label className="flex items-center gap-1 text-[11px] text-muted">
                   <input type="number" aria-label={`Delay before ${label}`} min={0} max={DELAY_MAX} value={e.delay_ms} disabled={disabled}
                     onChange={(ev) => setDelay(i, Number(ev.target.value))}
@@ -73,7 +74,8 @@ export function MacroEditor({ macro, onChange, disabled }: { macro: Macro; onCha
           className="rounded-lg border border-line px-3 py-1.5 text-[13px] disabled:opacity-40">Add mouse click</button>
       </div>
       <p className="text-[12px] text-muted">{events.length} events, plays in about {fmt(totalMs(macro))}
-        {cableOnly && <span className="block text-accent">Keys above F21 work over 2.4G only (not over the cable)</span>}</p>
+        {cableOnly && <span className="block text-accent">Keys above F21 work over 2.4G only (not over the cable)</span>}
+        {held.length > 0 && <span className="block text-accent">This macro leaves {held.join(", ")} held down</span>}</p>
     </div>
   );
 }

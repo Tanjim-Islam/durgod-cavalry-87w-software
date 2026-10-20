@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Keyboard } from "@/components/Keyboard";
 import { Segmented } from "@/components/Segmented";
 import { KEYS } from "@/lib/layout";
+import { clampRepeat } from "@/lib/macro";
 import { useApp } from "@/state/app";
 
 const LAYERS: ["0" | "1" | "3", string][] = [["0", "Base"], ["1", "Fn layer"], ["3", "WASD swap"]];
@@ -29,7 +30,7 @@ function Body({ macroIndex, onClose }: { macroIndex: number; onClose: () => void
   const [slot, setSlot] = useState<number | null>(null);
   const [note, setNote] = useState("");
   const [mode, setMode] = useState<"1" | "2" | "4">("1");
-  const [count, setCount] = useState(1);
+  const [count, setCount] = useState("1");
   const [busy, setBusy] = useState(false);
   const layer = Number(layerKey);
   const actions = state?.layers?.[layer];
@@ -49,7 +50,7 @@ function Body({ macroIndex, onClose }: { macroIndex: number; onClose: () => void
   const assign = async () => {
     if (slot == null) return;
     setBusy(true);
-    const ok = await act("remap_key", layer, slot, { type: "macro", index: macroIndex, mode: Number(mode), count: mode === "1" ? count : 1 });
+    const ok = await act("remap_key", layer, slot, { type: "macro", index: macroIndex, mode: Number(mode), count: mode === "1" ? clampRepeat(count) : 1 });
     setBusy(false);
     if (ok) onClose();
   };
@@ -66,7 +67,7 @@ function Body({ macroIndex, onClose }: { macroIndex: number; onClose: () => void
         <Segmented label="Play mode" value={mode} options={[["1", "Once"], ["2", "While held"], ["4", "Toggle"]]} onChange={setMode} />
         {mode === "1" && <label className="flex items-center gap-2 text-[13px]">Repeat
           <input type="number" aria-label="Repeat count" min={1} max={255} value={count}
-            onChange={(e) => setCount(Math.min(255, Math.max(1, Number(e.target.value) || 1)))}
+            onChange={(e) => setCount(e.target.value)} onBlur={() => setCount(String(clampRepeat(count)))}
             className="w-20 rounded-md border border-line bg-surface-2 px-2 py-1 text-right" /></label>}
       </div>
     </div>

@@ -3,6 +3,7 @@ import type { Action, Macro } from "@/bridge/types";
 import { Segmented } from "@/components/Segmented";
 import { describe } from "@/lib/describe";
 import { CONSUMER, HID_KEYS, LIGHTING_FNS, MODIFIERS, MOUSE, NKRO_MAX, PRESETS, SYSTEM_OFFERED } from "@/lib/hid";
+import { clampRepeat } from "@/lib/macro";
 
 type Tab = "key" | "consumer" | "mouse" | "macro" | "shortcut" | "lighting" | "system" | "none";
 const TABS: [Tab, string][] = [["key", "Key"], ["consumer", "Media"], ["mouse", "Mouse"], ["macro", "Macro"],
@@ -53,7 +54,8 @@ export function ActionEditor({ value, macros, onApply, disabled }: { value: Acti
   const [sys, setSys] = useState<number | null>(value.type === "system" && SYSTEM_OFFERED.some(([c]) => c === value.code) ? value.code : null);
   const [macro, setMacro] = useState(value.type === "macro" && value.index < macros.length ? value.index : 0);
   const [mode, setMode] = useState<"1" | "2" | "4">(value.type === "macro" ? (String(value.mode) as "1" | "2" | "4") : "1");
-  const [count, setCount] = useState(value.type === "macro" ? value.count : 1);
+  const [countText, setCountText] = useState(String(value.type === "macro" ? value.count : 1));
+  const count = clampRepeat(countText);
 
   const action: Action | null = useMemo(() => {
     switch (tab) {
@@ -102,8 +104,8 @@ export function ActionEditor({ value, macros, onApply, disabled }: { value: Acti
         </select>
         <Segmented label="Play mode" value={mode} options={[["1", "Once"], ["2", "While held"], ["4", "Toggle"]]} onChange={setMode} disabled={disabled} />
         {mode === "1" && <label className="flex items-center justify-between text-[13px]">Repeat
-          <input type="number" aria-label="Repeat count" min={1} max={255} value={count} disabled={disabled}
-            onChange={(e) => setCount(Math.min(255, Math.max(1, Number(e.target.value) || 1)))}
+          <input type="number" aria-label="Repeat count" min={1} max={255} value={countText} disabled={disabled}
+            onChange={(e) => setCountText(e.target.value)} onBlur={() => setCountText(String(count))}
             className="w-20 rounded-md border border-line bg-surface-2 px-2 py-1 text-right" /></label>}
       </>))}
       {tab === "none" && <p className="text-[13px] text-muted">The key will do nothing.</p>}

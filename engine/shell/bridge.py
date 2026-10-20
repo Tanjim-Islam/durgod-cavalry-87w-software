@@ -105,8 +105,10 @@ class Bridge:
         self._lock = threading.Lock()
         self._closed = False
         self._clash_path: str | None = None
-        self._recording = None
+        self._recording = None          # (Recorder, KeyboardHook, Timer) while a recording runs
+        self._rec_done: dict | None = None  # result of a recording that timed out, for the next stop call
         self._rec_lock = threading.Lock()
+        self._rec_timeout_s = 600.0
         for name in API_METHODS:
             setattr(self, name, _plain(getattr(api, name)))
         api.subscribe(self.push)
@@ -185,9 +187,10 @@ class Bridge:
             raise Exception(str(e)) from None
 
     def record_macro_start(self):
+        """Start recording; an active recording (e.g. from a page that went away) is replaced."""
         with self._rec_lock:
-            if self._recording:
-                raise Exception("Already recording")
+            self._end_recording()
+            self._rec_done = None
             rec = Recorder()
             rec.start()
             hook = KeyboardHook(rec.on_key)
@@ -195,26 +198,49 @@ class Bridge:
                 hook.start()
             except Exception as e:
                 raise Exception(str(e)) from None
-            self._recording = (rec, hook)
+            timer = threading.Timer(self._rec_timeout_s, self._auto_stop)
+            timer.daemon = True
+            self._recording = (rec, hook, timer)
+            timer.start()
 
     def record_macro_stop(self):
         with self._rec_lock:
             if not self._recording:
-                raise Exception("Not recording")
-            rec, hook = self._recording
+                done, self._rec_done = self._rec_done, None
+                if done is None:
+                    raise Exception("Not recording")
+                return done
+            rec, hook, timer = self._recording
             self._recording = None
+            timer.cancel()
             hook.stop()
             return rec.stop()
+
+    def _auto_stop(self) -> None:
+        """Safety net: remove the hook after the timeout and keep the events for the next stop call."""
+        with self._rec_lock:
+            if not self._recording or self._recording[2] is not threading.current_thread():
+                return
+            rec = self._recording[0]
+            self._end_recording()
+            self._rec_done = rec.stop()
+            log.warning("macro recording stopped after %.0f s", self._rec_timeout_s)
+
+    def _end_recording(self) -> None:
+        """Caller holds _rec_lock: drop an active recording, its hook and its timer."""
+        cur, self._recording = self._recording, None
+        if not cur:
+            return
+        cur[2].cancel()
+        try:
+            cur[1].stop()
+        except Exception:
+            log.exception("could not stop the keyboard recorder")
 
     def _stop_recording(self) -> None:
         """Shutdown only: drop an active recording and its hook."""
         with self._rec_lock:
-            rec, self._recording = self._recording, None
-            if rec:
-                try:
-                    rec[1].stop()
-                except Exception:
-                    log.exception("could not stop the keyboard recorder")
+            self._end_recording()
 
     def show_main(self): self._host.show_main()
     def hide_flyout(self): self._host.hide_flyout()

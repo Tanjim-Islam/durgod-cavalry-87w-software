@@ -99,3 +99,18 @@ test("key list is grouped and empty groups hide while searching", async () => {
   expect(screen.queryByRole("group", { name: "Letters" })).not.toBeInTheDocument();
   expect(screen.getByRole("group", { name: "Editing" })).toBeInTheDocument();
 });
+
+test("repeat count can be typed freely and is clamped on blur", async () => {
+  const onApply = vi.fn();
+  render(<ActionEditor value={{ type: "macro", index: 0, mode: 1, count: 1 }} macros={[{ name: "Hi", events: [] }]} onApply={onApply} />);
+  const input = screen.getByRole("spinbutton", { name: "Repeat count" });
+  await userEvent.clear(input);
+  await userEvent.type(input, "12");
+  expect(input).toHaveValue(12);
+  await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+  expect(onApply).toHaveBeenLastCalledWith({ type: "macro", index: 0, mode: 1, count: 12 });
+  await userEvent.clear(input);
+  await userEvent.type(input, "900");
+  await userEvent.tab();
+  expect(input).toHaveValue(255);
+});

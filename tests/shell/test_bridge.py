@@ -305,19 +305,19 @@ def test_stop_ends_an_active_recording(b, monkeypatch):
         def stop(self): calls.append("stop")
     monkeypatch.setattr("engine.shell.bridge.KeyboardHook", FakeHook)
     b.record_macro_start()
-    with pytest.raises(Exception):
-        b.record_macro_start()
-    b.stop()
+    b.record_macro_start()   # replaces the first recording
     assert calls == ["stop"]
+    b.stop()
+    assert calls == ["stop", "stop"]
 
 
-def test_concurrent_record_starts_install_one_hook(b, monkeypatch):
-    started, errors = [], []
+def test_concurrent_record_starts_leave_one_hook(b, monkeypatch):
+    alive, errors = set(), []
 
     class SlowHook:
         def __init__(self, cb): pass
-        def start(self): started.append(1); time.sleep(0.3)
-        def stop(self): pass
+        def start(self): alive.add(self); time.sleep(0.3)
+        def stop(self): alive.discard(self)
     monkeypatch.setattr("engine.shell.bridge.KeyboardHook", SlowHook)
 
     def go():
@@ -328,4 +328,25 @@ def test_concurrent_record_starts_install_one_hook(b, monkeypatch):
     ts = [threading.Thread(target=go) for _ in range(2)]
     for t in ts: t.start()
     for t in ts: t.join()
-    assert len(started) == 1 and errors == ["Already recording"]
+    assert errors == [] and len(alive) == 1
+    b.record_macro_stop()
+    assert not alive
+
+
+def test_recording_auto_stops_after_the_timeout(b, monkeypatch):
+    alive = set()
+
+    class FakeHook:
+        def __init__(self, cb): pass
+        def start(self): alive.add(self)
+        def stop(self): alive.discard(self)
+    monkeypatch.setattr("engine.shell.bridge.KeyboardHook", FakeHook)
+    b._rec_timeout_s = 0.05
+    b.record_macro_start()
+    deadline = time.monotonic() + 2
+    while alive and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not alive
+    assert b.record_macro_stop() == {"events": [], "truncated": False}
+    with pytest.raises(Exception, match="Not recording"):
+        b.record_macro_stop()

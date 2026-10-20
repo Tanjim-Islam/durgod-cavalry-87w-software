@@ -14,6 +14,7 @@ import { useApp } from "@/state/app";
 
 type Sel = number | "new" | null;
 const btn = "rounded-lg border border-line px-3 py-1.5 text-[13px] disabled:opacity-40";
+const quietStop = () => void call("record_macro_stop").catch((e) => console.warn("Couldn't stop the macro recorder", e));
 const fade = { initial: { opacity: 0, y: 6 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -6 } };
 
 export function Macros() {
@@ -24,13 +25,22 @@ export function Macros() {
   const [assign, setAssign] = useState(false);
   const [confirm, setConfirm] = useState<"delete" | "clear" | null>(null);
   const [session, setSession] = useState(0); // bumps per opened macro, so saving keeps the editor in place
-  const rec = useRef(false);
-  useEffect(() => { rec.current = recording; }, [recording]);
+  const [recBusy, setRecBusy] = useState(false);
+  // A start was sent and no stop yet; a start is still in flight; the page is mounted.
+  const active = useRef(false);
+  const starting = useRef(false);
+  const mounted = useRef(true);
   const macros = state?.macros ?? null;
   const off = !state?.connected || !macros;
 
-  // Stop an active recording when leaving the page.
-  useEffect(() => () => { if (rec.current) void call("record_macro_stop").catch(() => {}); }, []);
+  // Stop an active recording when leaving the page; a pending start stops itself when it lands.
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (active.current && !starting.current) { active.current = false; quietStop(); }
+    };
+  }, []);
   // Drop the selection if its macro went away (adjusting state during render).
   if (typeof sel === "number" && (!macros || sel >= macros.length)) { setSel(null); setDraft(null); }
 
@@ -44,14 +54,31 @@ export function Macros() {
   const over = used > MACRO_LIMIT;
   const canSave = !!draft && !off && !recording && !over && draft.name.trim() !== "" && draft.events.length > 0;
 
-  const toggleRecord = async () => {
-    if (!recording) { if (await act("record_macro_start")) setRecording(true); return; }
+  const startRecord = async () => {
+    active.current = true; starting.current = true; setRecBusy(true);
+    const ok = await act("record_macro_start");
+    starting.current = false;
+    if (!ok) active.current = false;
+    if (!mounted.current) { if (ok) { active.current = false; quietStop(); } return; }
+    setRecBusy(false);
+    if (ok) setRecording(true);
+  };
+  const stopRecord = async () => {
+    if (!active.current) return;
+    active.current = false; setRecBusy(true);
     const r = await run<{ events: MacroEvent[]; truncated: boolean }>("record_macro_stop");
-    setRecording(false);
+    setRecBusy(false); setRecording(false);
     if (!r) return;
     setDraft((d) => (d ? { ...d, events: r.events } : d));
     if (r.truncated) toast("Recording was cut off at the size limit");
   };
+  // The draft went away mid-recording (e.g. the keyboard disconnected): stop and drop the events.
+  const orphaned = recording && !recBusy && !draft;
+  useEffect(() => {
+    if (!orphaned || !active.current) return;
+    active.current = false;
+    void run("record_macro_stop").then(() => setRecording(false));
+  }, [orphaned, run]);
   const save = async () => {
     if (!draft) return;
     const r = await run<{ index: number }>("save_macro", typeof sel === "number" ? sel : null, draft);
@@ -70,12 +97,24 @@ export function Macros() {
 
   return (
     <PageShell title="Macros" meta="Recorded on this PC, stored on your keyboard">
+      <AnimatePresence initial={false}>
+        {recording && (
+          <motion.div key="rec" {...fade} role="status"
+            className="flex items-center gap-3 rounded-xl border border-destructive/50 bg-surface px-3.5 py-2.5 text-[13px]">
+            <motion.span aria-hidden="true" className="size-2 rounded-full bg-destructive"
+              animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 1.2, repeat: Infinity }} />
+            <span className="flex-1">Recording. Type the keys you want, then stop.</span>
+            <button type="button" disabled={recBusy} onClick={() => void stopRecord()}
+              className={`${btn} border-destructive text-destructive`}>Stop recording</button>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {!state?.connected ? (
         <Card><p className="text-[13px] text-muted">Connect the keyboard to edit macros.</p></Card>
       ) : !macros ? (
         <Card title="Macros couldn't be read">
           <p className="mb-3 text-[13px]">{state.macros_error || "The macro memory on the keyboard couldn't be read."}</p>
-          <button type="button" onClick={() => setConfirm("clear")} className={btn}>Clear all macros</button>
+          <button type="button" disabled={recording} onClick={() => setConfirm("clear")} className={btn}>Clear all macros</button>
         </Card>
       ) : (
         <div className="grid items-start gap-4 md:grid-cols-[200px_minmax(0,1fr)]">
@@ -112,18 +151,12 @@ export function Macros() {
                 <Card title={sel === "new" ? "New macro" : `Macro ${Number(sel) + 1}`}>
                   <MacroEditor macro={draft} onChange={setDraft} disabled={recording} />
                   <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
-                    <button type="button" onClick={() => void toggleRecord()}
-                      className={`${btn} flex items-center gap-2 ${recording ? "border-destructive text-destructive" : ""}`}>
-                      {recording && <motion.span aria-hidden="true" className="size-2 rounded-full bg-destructive"
-                        animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 1.2, repeat: Infinity }} />}
-                      {recording ? "Stop recording" : "Record"}
-                    </button>
+                    <button type="button" disabled={recording || recBusy || off} onClick={() => void startRecord()} className={btn}>Record</button>
                     <button type="button" disabled={typeof sel !== "number" || recording} onClick={() => setAssign(true)} className={btn}>Assign to key</button>
                     <button type="button" disabled={typeof sel !== "number" || recording} onClick={() => setConfirm("delete")} className={btn}>Delete</button>
                     <button type="button" disabled={!canSave} onClick={() => void save()}
                       className="ml-auto rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-on-accent disabled:opacity-40">Save</button>
                   </div>
-                  {recording && <p className="mt-2 text-[12px] text-muted" aria-live="polite">Recording. Type the keys you want, then stop.</p>}
                 </Card>
               </motion.div>
             ) : (

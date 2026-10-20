@@ -4,7 +4,14 @@ import { Switch } from "@/components/ui/switch";
 import { Card } from "@/components/Card";
 import { LevelSlider } from "@/components/LevelSlider";
 import { PageShell } from "@/components/PageShell";
+import { StateKeyboard } from "@/components/StateKeyboard";
 import { useApp } from "@/state/app";
+
+function sleepLabel(units: number) {
+  const secs = units * 30;
+  if (secs < 60) return `${secs} s`;
+  return secs % 60 === 0 ? `${secs / 60} min` : `${Math.floor(secs / 60)} min ${secs % 60} s`;
+}
 
 const SLEEP = [[1, "30 s"], [2, "1 min"], [4, "2 min"], [6, "3 min"], [10, "5 min"], [20, "10 min"], [40, "20 min"]] as const;
 
@@ -29,7 +36,7 @@ export function Settings() {
   const s = state?.settings;
   const off = !state?.connected || state.partial;
   return (
-    <PageShell title="Settings" meta="Keyboard and app preferences">
+    <PageShell title="Settings" meta="Keyboard and app preferences" keyboard={<StateKeyboard />}>
       <div className="grid gap-3 lg:grid-cols-2">
         <Card title="Layout">
           <Segmented label="Win or Mac" value={s?.win_mac} disabled={off}
@@ -40,11 +47,12 @@ export function Settings() {
             <Switch aria-label="Keep lights on" checked={s?.sleep === 0} disabled={off} onCheckedChange={(v) => void act("set_keep_lights_on", v)} />
           </label>
           <label className="mt-3 flex items-center justify-between text-[13px]">Sleep after
-            <select aria-label="Sleep after" disabled={off || s?.sleep === 0} value={s?.sleep ?? 0}
+            <select aria-label="Sleep after" disabled={off || !s || s.sleep === 0} value={s?.sleep ?? ""}
               onChange={(e) => void act("set_settings", null, Number(e.target.value), null)}
               className="rounded-md border border-line bg-surface-2 px-2 py-1 text-[13px] disabled:opacity-40">
+              {!s && <option value="">—</option>}
               {s?.sleep === 0 && <option value={0}>Never</option>}
-              {s && s.sleep !== 0 && !SLEEP.some(([v]) => v === s.sleep) && <option value={s.sleep}>Custom ({s.sleep})</option>}
+              {s && s.sleep !== 0 && !SLEEP.some(([v]) => v === s.sleep) && <option value={s.sleep}>{sleepLabel(s.sleep)} (custom)</option>}
               {SLEEP.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
             </select>
           </label>

@@ -5,21 +5,30 @@ import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Card } from "@/components/Card";
 import { PageShell } from "@/components/PageShell";
+import { StateKeyboard } from "@/components/StateKeyboard";
 import { call } from "@/bridge/api";
 import { useApp } from "@/state/app";
 
 type Confirm = { title: string; body: string; label: string; run: () => Promise<unknown> };
 
 export function Profiles() {
-  const { profiles, backups, loadProfiles, loadBackups, act } = useApp();
+  const { state, profiles, backups, loadProfiles, loadBackups, act } = useApp();
+  const off = !state?.connected || state.partial;
   const [name, setName] = useState("");
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [open, setOpen] = useState(false);
   useEffect(() => { void loadProfiles(); void loadBackups(); }, [loadProfiles, loadBackups]);
 
   const ask = (c: Confirm) => { setConfirm(c); setOpen(true); };
-  const save = async () => {
-    if (await act("save_profile", name.trim())) { setName(""); await loadProfiles(); toast("Profile saved"); }
+  const doSave = async (n: string) => {
+    if (await act("save_profile", n)) { setName(""); await loadProfiles(); toast("Profile saved"); }
+  };
+  const save = () => {
+    const n = name.trim();
+    if (profiles.some((p) => p.toLowerCase() === n.toLowerCase())) {
+      ask({ title: `Overwrite ${n}?`, body: "A profile with this name exists. It is replaced with the current keyboard setup.",
+        label: "Overwrite", run: () => doSave(n) });
+    } else void doSave(n);
   };
   const exportP = async (p: string) => {
     try { const path = await call<string | null>("export_profile_dialog", p); if (path) toast(`Exported to ${path}`); }
@@ -36,7 +45,7 @@ export function Profiles() {
   };
 
   return (
-    <PageShell title="Profiles" meta="Saved setups and automatic backups">
+    <PageShell title="Profiles" meta="Saved setups and automatic backups" keyboard={<StateKeyboard />}>
       <Card title="Profiles">
         <div className="mb-3 flex gap-2">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Profile name" aria-label="Profile name" maxLength={40}
@@ -53,9 +62,9 @@ export function Profiles() {
                 exit={{ opacity: 0, height: 0 }} className="flex items-center justify-between py-2 text-[13px]">
                 <span>{p}</span>
                 <span className="flex gap-1.5">
-                  <button type="button" aria-label={`Apply ${p}`}
+                  <button type="button" aria-label={`Apply ${p}`} disabled={off}
                     onClick={() => ask({ title: `Apply ${p}?`, body: "This writes the profile to your keyboard. A backup is taken first.", label: "Apply", run: () => act("apply_profile", p) })}
-                    className="rounded-md bg-surface-2 px-2.5 py-1">Apply</button>
+                    className="rounded-md bg-surface-2 px-2.5 py-1 disabled:opacity-40">Apply</button>
                   <button type="button" aria-label={`Export ${p}`} onClick={() => exportP(p)} className="rounded-md px-2 py-1 text-muted hover:text-ink"><Download aria-hidden="true" className="size-3.5" /></button>
                   <button type="button" aria-label={`Delete ${p}`}
                     onClick={() => ask({ title: `Delete ${p}?`, body: "The profile file is removed. Your keyboard is not changed.", label: "Delete", run: async () => { await act("delete_profile", p); await loadProfiles(); } })}
@@ -74,9 +83,9 @@ export function Profiles() {
                 {b.factory ? <span className="mr-2 rounded bg-accent/15 px-1.5 py-0.5 text-[11px] text-accent">Factory</span> : null}
                 {new Date(b.created).toLocaleString()} <span className="text-muted">· {b.label}</span>
               </span>
-              <button type="button" aria-describedby={`backup-${b.name}`}
+              <button type="button" aria-describedby={`backup-${b.name}`} disabled={off}
                 onClick={() => ask({ title: "Restore this backup to the keyboard?", body: "Your current setup is backed up first.", label: "Restore to keyboard", run: () => act("restore_backup", b.name) })}
-                className="rounded-md bg-surface-2 px-2.5 py-1"><RotateCcw aria-hidden="true" className="mr-1 inline size-3.5" />Restore</button>
+                className="rounded-md bg-surface-2 px-2.5 py-1 disabled:opacity-40"><RotateCcw aria-hidden="true" className="mr-1 inline size-3.5" />Restore</button>
             </li>
           ))}
         </ul>

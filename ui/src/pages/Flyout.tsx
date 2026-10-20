@@ -10,9 +10,17 @@ import { windowAction } from "@/bridge/api";
 import { useApp } from "@/state/app";
 
 export function Flyout() {
-  const { state, act, profiles, backups, settings, loadProfiles, loadBackups, setAppSettings } = useApp();
+  const { state, act, profiles, backups, settings, loadProfiles, loadBackups, loadSettings, setAppSettings } = useApp();
   const [confirmOpen, setConfirmOpen] = useState(false);
-  useEffect(() => { void loadProfiles(); void loadBackups(); }, [loadProfiles, loadBackups]);
+  // The window is hidden and re-shown rather than remounted, so reload whenever it comes back.
+  useEffect(() => {
+    const reload = () => { void loadProfiles(); void loadBackups(); void loadSettings(); };
+    const onVisible = () => { if (document.visibilityState === "visible") reload(); };
+    reload();
+    addEventListener("focus", reload);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { removeEventListener("focus", reload); document.removeEventListener("visibilitychange", onVisible); };
+  }, [loadProfiles, loadBackups, loadSettings]);
   useEffect(() => {
     const hide = () => void windowAction("hide_flyout");
     // While the confirm dialog is open, Esc only closes the dialog.
@@ -44,7 +52,7 @@ export function Flyout() {
         <Switch aria-label="Keep lights on" checked={Boolean(l?.keep_lights_on)} disabled={off} onCheckedChange={(v) => void act("set_keep_lights_on", v)} />
       </label>
       <select aria-label="Profile" disabled={off || profiles.length === 0} value=""
-        onChange={(e) => e.target.value && void act("apply_profile", e.target.value)}
+        onChange={async (e) => { const p = e.target.value; if (p) { await act("apply_profile", p); await loadBackups(); } }}
         className="rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-[13px]">
         <option value="" disabled>Apply a profile…</option>
         {profiles.map((p) => <option key={p} value={p}>{p}</option>)}

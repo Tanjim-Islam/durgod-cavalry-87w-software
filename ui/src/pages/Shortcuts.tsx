@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { motion } from "motion/react";
 import { Card } from "@/components/Card";
 import { PageShell } from "@/components/PageShell";
+import { StateKeyboard } from "@/components/StateKeyboard";
 import { useApp } from "@/state/app";
 
 const GROUPS = ["Media", "Lighting", "Connection", "System"];
@@ -23,7 +24,7 @@ export function Shortcuts() {
   const { shortcuts, loadShortcuts } = useApp();
   useEffect(() => { void loadShortcuts(); }, [loadShortcuts]);
   return (
-    <PageShell title="Shortcuts" meta="Every Fn shortcut, read from your keyboard">
+    <PageShell title="Shortcuts" meta="Every Fn shortcut, read from your keyboard" keyboard={<StateKeyboard />}>
       <div className="grid gap-3 lg:grid-cols-2">
         {GROUPS.map((g) => (
           <Card key={g}>

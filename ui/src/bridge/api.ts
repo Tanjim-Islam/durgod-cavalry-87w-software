@@ -7,13 +7,19 @@ declare global {
 }
 
 const listeners = new Set<(e: DeviceEvent) => void>();
-window.__cavalryEmit = (e) => listeners.forEach((l) => l(e));
+window.__cavalryEmit = (e) => listeners.forEach((l) => {
+  try { l(e); } catch (err) { console.error(err); }
+});
 
 let mock: Remote | null = null;
-export const isDesktop = () => Boolean(window.pywebview?.api);
+export const hasApi = () => {
+  const api = window.pywebview?.api;
+  return Boolean(api) && Object.values(api!).some((v) => typeof v === "function");
+};
+export const isDesktop = hasApi;
 
 function remote(): Remote {
-  if (window.pywebview?.api) return window.pywebview.api;
+  if (hasApi()) return window.pywebview!.api;
   mock ??= createMock((e) => window.__cavalryEmit?.(e)) as unknown as Remote;
   return mock;
 }
@@ -39,7 +45,8 @@ export const windowAction = (name: "show_main" | "hide_flyout" | "minimize" | "q
   call<void>(name);
 
 export function waitForBridge(): Promise<void> {
-  if (window.pywebview?.api || !navigator.userAgent.includes("Edg")) return Promise.resolve();
+  if (hasApi()) return Promise.resolve();
+  if (!window.pywebview && !navigator.userAgent.includes("Edg")) return Promise.resolve();
   return new Promise((res) => {
     window.addEventListener("pywebviewready", () => res(), { once: true });
     setTimeout(res, 1500);

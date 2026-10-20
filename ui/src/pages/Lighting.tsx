@@ -5,7 +5,7 @@ import { Card } from "@/components/Card";
 import { EffectRow } from "@/components/EffectRow";
 import { Keyboard } from "@/components/Keyboard";
 import { LevelSlider } from "@/components/LevelSlider";
-import { KeyPainter } from "@/components/KeyPainter";
+import { KeyPainterControls, PaintKeyboard, useKeyPainter } from "@/components/KeyPainter";
 import { PageShell } from "@/components/PageShell";
 import { PaletteEditor } from "@/components/PaletteEditor";
 import { useApp } from "@/state/app";
@@ -14,9 +14,12 @@ export function Lighting() {
   const { state, act } = useApp();
   const l = state?.lighting;
   const off = !state?.connected || state.partial;
-  const [draft, setDraft] = useState<RGB[] | null>(null);
+  const [paletteDraft, setPaletteDraft] = useState<{ effect: number; colors: RGB[] } | null>(null);
   const game = l?.effect === 18;
-  // While a palette draft exists, the preview and swatches show it instead of the saved colors.
+  const painter = useKeyPainter({ keyColors: state?.key_colors, disabled: off, active: game,
+    onSave: (colors) => act("set_key_colors", colors) });
+  // While a palette draft exists for this effect, the preview and swatches show it instead of the saved colors.
+  const draft = l && paletteDraft?.effect === l.effect ? paletteDraft.colors : null;
   const palette = l && draft && state?.palette ? state.palette.map((g, i) => (i === l.effect ? draft : g)) : state?.palette;
   const group = l && palette ? palette[l.effect] ?? palette[0] : null;
   const editable = !off && !!l;
@@ -26,7 +29,9 @@ export function Lighting() {
   };
   return (
     <PageShell title="Lighting" meta={off ? "Connect the keyboard to change lighting" : "Saved on the keyboard"}
-      keyboard={game ? null : <Keyboard lighting={l} palette={palette} keyColors={state?.key_colors} />}>
+      keyboard={game && state?.key_colors
+        ? <PaintKeyboard painter={painter} lighting={l} />
+        : <Keyboard lighting={l} palette={palette} keyColors={state?.key_colors} />}>
       {state?.lighting_error && <p className="text-xs text-accent">{state.lighting_error}</p>}
       <Card title="Effect">
         <EffectRow effects={state?.effects ?? []} value={l?.effect} disabled={off} onChange={(id) => void set("effect", id)} />
@@ -34,15 +39,14 @@ export function Lighting() {
       {l && (game ? (
         <Card title="Key colors">
           {state?.key_colors ? (
-            <KeyPainter keyColors={state.key_colors} disabled={off}
-              onSave={(colors) => act("set_key_colors", colors)} />
+            <KeyPainterControls painter={painter} />
           ) : <p className="text-xs text-muted">{state?.key_colors_error || "Key colors aren't available yet."}</p>}
         </Card>
       ) : (
         <Card title="Palette">
           {state?.palette ? (
             <PaletteEditor key={l.effect} effect={l.effect} palette={state.palette} disabled={!editable}
-              onSave={(effect, colors) => act("set_palette", effect, colors)} onDraft={setDraft} />
+              onSave={(effect, colors) => act("set_palette", effect, colors)} onDraft={(g) => setPaletteDraft(g ? { effect: l.effect, colors: g } : null)} />
           ) : <p className="text-xs text-muted">{state?.palette_error || "Palette isn't available yet."}</p>}
         </Card>
       ))}

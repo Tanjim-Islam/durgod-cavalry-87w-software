@@ -1,0 +1,56 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/space-grotesk";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(:root:not([data-theme="light"]) *));
+
+:root {
+  --bg: #1a1a1a; --sidebar: #161616; --surface: #222222; --surface-2: #292929;
+  --line: #2e2e2e; --text: #ededed; --muted: #8c8c8c; --accent: #ff7a45; --on-accent: #1a1a1a;
+  color-scheme: dark;
+  /* shadcn semantic vars bridged to our tokens so dialogs, toasts and tooltips follow the theme */
+  --background: var(--bg); --foreground: var(--text);
+  --card: var(--surface); --card-foreground: var(--text);
+  --popover: var(--surface); --popover-foreground: var(--text);
+  --primary: var(--accent); --primary-foreground: var(--on-accent);
+  --secondary: var(--surface-2); --secondary-foreground: var(--text);
+  --muted-foreground: var(--muted); --accent-foreground: var(--on-accent);
+  --destructive: #e5484d; --border: var(--line); --input: var(--line); --ring: var(--accent);
+  --radius: 0.625rem;
+}
+[data-theme="light"] {
+  --bg: #f6f5f3; --sidebar: #efeeeb; --surface: #ffffff; --surface-2: #f0eeea;
+  --line: #e4e2de; --text: #171717; --muted: #7a7772; --accent: #e8582a; --on-accent: #ffffff;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-bg: var(--bg); --color-sidebar: var(--sidebar); --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2); --color-line: var(--line); --color-ink: var(--text);
+  --color-muted: var(--muted); --color-accent: var(--accent); --color-on-accent: var(--on-accent);
+  --font-sans: "Inter Variable", system-ui, sans-serif;
+  --font-display: "Space Grotesk Variable", "Inter Variable", sans-serif;
+  --color-background: var(--background); --color-foreground: var(--foreground);
+  --color-card: var(--card); --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover); --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary); --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted-foreground: var(--muted-foreground); --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive); --color-border: var(--border);
+  --color-input: var(--input); --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) * 0.6); --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius); --radius-xl: calc(var(--radius) * 1.4);
+}
+
+html, body, #root { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans);
+       -webkit-font-smoothing: antialiased; user-select: none; overflow: hidden; }
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.fade-right { mask-image: linear-gradient(90deg, #000 88%, transparent); }
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+}

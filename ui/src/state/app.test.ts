@@ -1,0 +1,35 @@
+import { describe, expect, test, vi, beforeEach } from "vitest";
+
+vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { error: vi.fn() }) }));
+import { toast } from "sonner";
+import { handleResult, useApp } from "./app";
+
+beforeEach(() => useApp.setState({ state: null, busy: false }));
+
+describe("app store", () => {
+  test("refresh loads state from the bridge", async () => {
+    await useApp.getState().refresh();
+    expect(useApp.getState().state?.lighting?.effect).toBe(1);
+  });
+
+  test("act stores the returned state", async () => {
+    await useApp.getState().act("set_lighting", 11, null, null, null, null);
+    expect(useApp.getState().state?.lighting?.effect).toBe(11);
+  });
+
+  test("act shows ApiError text as an error toast and keeps old state", async () => {
+    await useApp.getState().refresh();
+    const before = useApp.getState().state;
+    await useApp.getState().act("apply_profile", "Nope");
+    expect(toast.error).toHaveBeenCalledWith("No such profile");
+    expect(useApp.getState().state).toBe(before);
+  });
+
+  test("warning in a result becomes a toast and state is kept from the result", () => {
+    handleResult({ connected: true, link: "radio", warning: "careful" });
+    expect(toast).toHaveBeenCalledWith("careful");
+    expect(useApp.getState().state?.connected).toBe(true);
+    handleResult(["Default"]);
+    expect(useApp.getState().state?.connected).toBe(true);
+  });
+});

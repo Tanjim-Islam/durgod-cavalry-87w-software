@@ -24,6 +24,7 @@
   --bg: #f6f5f3; --sidebar: #efeeeb; --surface: #ffffff; --surface-2: #f0eeea;
   --line: #e4e2de; --text: #171717; --muted: #7a7772; --accent: #e8582a; --on-accent: #ffffff;
   color-scheme: light;
+  --destructive: #d1343a;
 }
 
 @theme inline {

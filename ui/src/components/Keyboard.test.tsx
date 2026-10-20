@@ -26,7 +26,7 @@ test("right-side modifiers are addressable and report their own slot", async () 
   render(<Keyboard lighting={lighting} palette={palette} onKeyClick={onKeyClick} />);
   await userEvent.click(screen.getByLabelText("Right Shift"));
   expect(onKeyClick).toHaveBeenCalledWith(82);
-  expect(screen.getByLabelText("Shift")).toBeInTheDocument();
+  expect(screen.getByLabelText("Left Shift")).toBeInTheDocument();
 });
 
 test("preview without onKeyClick has no focusable caps", () => {

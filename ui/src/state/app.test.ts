@@ -4,7 +4,7 @@ vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { error: vi.fn() }) }))
 import { toast } from "sonner";
 import { handleResult, useApp } from "./app";
 
-beforeEach(() => useApp.setState({ state: null, busy: false }));
+beforeEach(() => useApp.setState({ state: null, busy: false, pending: 0 }));
 
 describe("app store", () => {
   test("refresh loads state from the bridge", async () => {
@@ -31,5 +31,15 @@ describe("app store", () => {
     expect(useApp.getState().state?.connected).toBe(true);
     handleResult(["Default"]);
     expect(useApp.getState().state?.connected).toBe(true);
+  });
+
+  test("run returns the raw result and busy tracks overlapping calls", async () => {
+    const a = useApp.getState().run<{ index: number }>("save_macro", null, { name: "X", events: [] });
+    const b = useApp.getState().run("get_state");
+    expect(useApp.getState().pending).toBe(2);
+    expect((await a)?.index).toBeTypeOf("number");
+    await b;
+    expect(useApp.getState().pending).toBe(0);
+    expect(useApp.getState().busy).toBe(false);
   });
 });

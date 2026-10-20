@@ -22,6 +22,7 @@ type PageId = (typeof PAGES)[number]["id"];
 
 export default function App() {
   const { state, refresh, loadSettings } = useApp();
+  const themeMode = useApp((s) => s.themeMode);
   const [page, setPage] = useState<PageId>("lighting");
   const [route, setRoute] = useState(location.hash);
   useEffect(() => {
@@ -33,7 +34,7 @@ export default function App() {
     return () => { removeEventListener("hashchange", h); removeEventListener("pywebviewready", load); };
   }, [refresh, loadSettings]);
 
-  if (route === "#/flyout") return <MotionConfig reducedMotion="user"><Flyout /><Toaster position="top-center" /></MotionConfig>;
+  if (route === "#/flyout") return <MotionConfig reducedMotion="user"><Flyout /><Toaster theme={themeMode} position="top-center" /></MotionConfig>;
 
   return (
     <MotionConfig reducedMotion="user">
@@ -70,7 +71,7 @@ export default function App() {
           </AnimatePresence>
         </main>
       </div>
-      <Toaster position="bottom-right" />
+      <Toaster theme={themeMode} position="bottom-right" />
     </MotionConfig>
   );
 }

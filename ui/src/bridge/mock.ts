@@ -1,4 +1,5 @@
-import type { Action, AppSettings, BackupInfo, DeviceEvent, KbState, Macro, RGB, ShortcutRow } from "./types";
+import { BASE_LAYER, FN_LAYER, SWAP_LAYER } from "@/lib/hid";
+import type { Action, AppSettings, BackupInfo, DeviceEvent, KbState, Macro, MacroEvent, RGB, ShortcutRow } from "./types";
 
 const EFFECTS = ["Always On", "Breathing", "Dream Rainbow", "Hair Trigger", "Walk in the Rain",
   "Rainbow Roulette", "Key Ripples", "The Stars", "Step on the Snow", "Continuous Flow",
@@ -20,6 +21,8 @@ const SHORTCUTS: [string, string, string][] = [
   ["Fn + O", "System", "Windows mode (not in manual)"], ["Fn + P", "System", "Mac mode (not in manual)"],
   ["Fn + Del", "System", "Factory reset"], ["Fn + G", "System", "Unknown factory function"],
 ];
+const factory = (layer: number, slot: number): Action =>
+  ([BASE_LAYER, FN_LAYER, {}, SWAP_LAYER][layer] as Record<number, Action>)[slot] ?? { type: "none" };
 const KEY_NAMES: Record<string, string> = { "0": "Esc", "45": "J", "59": "Fn", "96": "Pause" };
 
 export function createMock(emit: (e: DeviceEvent) => void) {
@@ -29,7 +32,7 @@ export function createMock(emit: (e: DeviceEvent) => void) {
     effects: EFFECTS.map((name, i) => ({ id: IDS[i], name })), key_names: KEY_NAMES,
     lighting: { effect: 1, brightness: 4, speed: 3, color: 3, direction: false, keep_lights_on: true },
     settings: { win_mac: "win", sleep: 0, debounce: 0 },
-    layers: Array.from({ length: 4 }, () => Array.from({ length: 126 }, (): Action => ({ type: "none" }))),
+    layers: Array.from({ length: 4 }, (_, l) => Array.from({ length: 126 }, (_, i): Action => factory(l, i))),
     macros: [] as Macro[], key_colors: Array.from({ length: 126 }, (): RGB => [0, 0, 0]),
     palette: Array.from({ length: 23 }, () => DEFAULT_GROUP.map((c) => [...c] as RGB)),
   };
@@ -98,6 +101,46 @@ export function createMock(emit: (e: DeviceEvent) => void) {
         fail(`Not imported: a profile named '${name}' already exists. Import again with overwrite to replace it.`);
       profiles = [...new Set([...profiles, name])].sort();
       return name;
+    },
+    async remap_key(layer: number, slot: number, action: Action) {
+      await wait(); s.layers![layer][slot] = action;
+      const r = done();
+      if (action.type === "key" && action.hid > 0x70)
+        r.warning = "Saved. This key works over 2.4G but won't send over the cable (cable supports up to F21).";
+      return r;
+    },
+    async reset_key(layer: number, slot: number) { await wait(); s.layers![layer][slot] = factory(layer, slot); return done(); },
+    async reset_layer(layer: number) {
+      await wait();
+      for (let i = 0; i < 126; i++) s.layers![layer][i] = factory(layer, i);
+      return done();
+    },
+    async save_macro(index: number | null, macro: Macro) {
+      await wait();
+      const ms = s.macros!;
+      const i = index ?? ms.length;
+      if (index == null) ms.push(macro); else if (index < ms.length) ms[index] = macro; else fail(`No macro number ${index}`);
+      emit({ name: "state", payload: {} });
+      return { index: i, warning: null };
+    },
+    async delete_macro(index: number) { await wait(); s.macros!.splice(index, 1); return done(); },
+    async clear_macros() { await wait(); s.macros = []; return done(); },
+    async set_palette(group: number, colors: RGB[]) { await wait(); s.palette![group] = colors; return done(); },
+    async set_key_colors(colors: RGB[]) { await wait(); s.key_colors = colors; return done(); },
+    async rename_profile(old: string, name: string) {
+      await wait();
+      if (!profiles.includes(old)) fail("No such profile");
+      if (profiles.includes(name) && name !== old) fail(`a profile named '${name}' already exists`);
+      profiles = profiles.map((p) => (p === old ? name : p)).sort();
+      return [...profiles];
+    },
+    async record_macro_start() { await wait(); },
+    async record_macro_stop() {
+      await wait();
+      return { truncated: false, events: [
+        { kind: "key", code: 0x0b, release: false, delay_ms: 0 }, { kind: "key", code: 0x0b, release: true, delay_ms: 80 },
+        { kind: "key", code: 0x0c, release: false, delay_ms: 120 }, { kind: "key", code: 0x0c, release: true, delay_ms: 70 },
+      ] as MacroEvent[] };
     },
     async show_main() {}, async hide_flyout() {}, async minimize() {}, async quit() {},
   };

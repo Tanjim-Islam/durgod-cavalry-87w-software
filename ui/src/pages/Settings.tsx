@@ -19,7 +19,7 @@ export function Settings() {
   const { state, settings, act, setAppSettings, loadSettings } = useApp();
   useEffect(() => { void loadSettings(); }, [loadSettings]);
   const s = state?.settings;
-  const off = !state?.connected || state.partial;
+  const off = !state?.connected;
   return (
     <PageShell title="Settings" meta="Keyboard and app preferences" keyboard={<StateKeyboard />}>
       <div className="grid gap-3 lg:grid-cols-2">

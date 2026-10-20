@@ -8,6 +8,7 @@ from engine.codec.config import OFF_EFFECT, Config
 from engine.codec.keymap import Consumer, Key, MacroRef, NoAction, decode_layer, encode_layer
 from engine.codec.macro import decode_macros
 from engine.device import DeviceManager
+from engine.links.radio import RadioLink
 from engine.links.wired import WiredLink
 from engine.store import Store
 from tests.fakes import FakeKeyboard
@@ -500,3 +501,20 @@ def test_rename_profile(api):
     assert a.rename_profile("One", "Two") == ["Two"]
     with pytest.raises(ApiError):
         a.rename_profile("Missing", "X")
+
+
+def test_radio_before_any_cable_read_allows_lighting_only(tmp_path, fixture_blocks):
+    kb = FakeKeyboard(fixture_blocks)
+    clock = Clock()
+    st = Store(tmp_path)
+    dm = DeviceManager(st, detect=lambda: "radio",
+                       open_link=lambda k: RadioLink(kb.packet_device(), timeout_ms=1), clock=clock)
+    dm.poll(); clock.t += 5.1; dm.poll()
+    a = Api(dm, InlineWorker(), st)
+    s = a.get_state()
+    assert s["partial"] is True and s["lighting"] is not None and s["settings"] is not None
+    assert "layers" not in s
+    s = a.set_lighting(effect=7)
+    assert s["lighting"]["effect"] == 7
+    with pytest.raises(ApiError, match="wired mode"):
+        a.remap_key(1, 45, {"type": "consumer", "usage": 0x192})

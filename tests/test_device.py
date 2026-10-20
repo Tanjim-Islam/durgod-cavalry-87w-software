@@ -99,9 +99,15 @@ def test_radio_without_mirror_is_partial(env):
     kb, st, clock, state, dm, ev = env
     state["kind"] = "radio"
     connect(dm, clock)
-    assert dm.partial is True
-    with pytest.raises(NotReady):
-        dm.apply(lambda s: s)
+    assert dm.partial is True and dm.radio_config == kb.state.config
+    with pytest.raises(NotReady, match=r"Fn \+ PrtSc"):
+        dm.apply(lambda s: (setattr(s, "palette", bytes([1]) * 483) or s))
+    before = kb.state.palette, list(kb.state.layers), kb.state.macros
+    dm.apply(set_sleep(0))                   # config-only edits work over 2.4G before any cable read
+    assert Config(kb.state.config).sleep == 0
+    assert (kb.state.palette, list(kb.state.layers), kb.state.macros) == before
+    assert Config(dm.radio_config).sleep == 0 and dm.snapshot is None
+    assert not st.has_factory() and st.load_mirror_or_none() is None
 
 
 def test_disconnect_mid_batch_marks_pending_then_reapplies(env):

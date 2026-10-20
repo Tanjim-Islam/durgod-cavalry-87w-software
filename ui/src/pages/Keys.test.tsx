@@ -57,6 +57,6 @@ test("first-run 2.4G state asks for the cable instead of blaming the layout", as
   const s = useApp.getState().state!;
   useApp.setState({ state: { ...s, partial: true, layers: null, macros: null } });
   render(<Keys />);
-  expect(screen.getByText("Connect the cable once so the app can read your keyboard")).toBeInTheDocument();
+  expect(screen.getByText("Plug in the cable and press Fn + PrtSc (wired mode) once so the app can read your keys, macros and colors")).toBeInTheDocument();
   expect(screen.queryByText(/Couldn't read the key layout/)).not.toBeInTheDocument();
 });

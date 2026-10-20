@@ -9,12 +9,14 @@ import { KeyPainterControls, PaintKeyboard } from "@/components/KeyPainter";
 import { PageShell } from "@/components/PageShell";
 import { PaletteEditor } from "@/components/PaletteEditor";
 import { useKeyPainter } from "@/lib/useKeyPainter";
+import { DEFAULT_GROUP } from "@/lib/color";
+import { NEEDS_CABLE } from "@/lib/copy";
 import { useApp } from "@/state/app";
 
 export function Lighting() {
   const { state, act } = useApp();
   const l = state?.lighting;
-  const off = !state?.connected || state.partial;
+  const off = !state?.connected;
   const [paletteDraft, setPaletteDraft] = useState<{ effect: number; colors: RGB[] } | null>(null);
   const game = l?.effect === 18;
   const painter = useKeyPainter({ keyColors: state?.key_colors, disabled: off, active: game,
@@ -41,14 +43,14 @@ export function Lighting() {
         <Card title="Key colors">
           {state?.key_colors ? (
             <KeyPainterControls painter={painter} />
-          ) : <p className="text-xs text-muted">{state?.key_colors_error || "Key colors aren't available yet."}</p>}
+          ) : <p className="text-xs text-muted">{state?.key_colors_error || (state?.partial ? NEEDS_CABLE : "Key colors aren't available yet.")}</p>}
         </Card>
       ) : (
         <Card title="Palette">
           {state?.palette ? (
             <PaletteEditor key={l.effect} effect={l.effect} palette={state.palette} disabled={!editable}
               onSave={(effect, colors) => act("set_palette", effect, colors)} onDraft={(g) => setPaletteDraft(g ? { effect: l.effect, colors: g } : null)} />
-          ) : <p className="text-xs text-muted">{state?.palette_error || "Palette isn't available yet."}</p>}
+          ) : <p className="text-xs text-muted">{state?.palette_error || (state?.partial ? NEEDS_CABLE : "Palette isn't available yet.")}</p>}
         </Card>
       ))}
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -56,7 +58,7 @@ export function Lighting() {
         <Card><LevelSlider label="Speed" value={l?.speed} max={4} disabled={off} onCommit={(v) => set("speed", v)} /></Card>
         <Card title="Color">
           <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Color">
-            {[...(group ?? []), null].map((c, i) => (
+            {[...(group ?? DEFAULT_GROUP), null].map((c, i) => (
               <button key={i} type="button" role="radio" aria-checked={l?.color === i} aria-label={c ? `Color ${i + 1}` : "Multicolor"}
                 disabled={off || l?.color == null} onClick={() => void set("color", i)}
                 className={`size-6 rounded-full border border-ink/25 transition-transform hover:scale-110 ${l?.color === i

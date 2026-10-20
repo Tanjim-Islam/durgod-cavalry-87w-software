@@ -158,7 +158,7 @@ test("first-run 2.4G state asks for the cable and offers no destructive action",
   const s = useApp.getState().state!;
   useApp.setState({ state: { ...s, partial: true, layers: null, macros: null } });
   render(<Macros />);
-  expect(screen.getByText("Connect the cable once so the app can read your keyboard.")).toBeInTheDocument();
+  expect(screen.getByText("Plug in the cable and press Fn + PrtSc (wired mode) once so the app can read your keys, macros and colors.")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Clear all macros" })).not.toBeInTheDocument();
 });
 

@@ -31,7 +31,8 @@ export function Flyout() {
     return () => { removeEventListener("blur", hide); removeEventListener("keydown", esc); };
   }, [confirmOpen]);
   const l = state?.lighting;
-  const off = !state?.connected || state.partial;
+  const off = !state?.connected;
+  const full = !off && !state?.partial; // profiles and backups need everything read over the cable once
   const newest = backups.find((b) => !b.factory) ?? backups[0];
   const restore = async () => {
     setConfirmOpen(false);
@@ -52,7 +53,7 @@ export function Flyout() {
       <label className="flex items-center justify-between rounded-xl border border-line bg-surface p-3 text-[13px]">Keep lights on
         <Switch aria-label="Keep lights on" checked={Boolean(l?.keep_lights_on)} disabled={off} onCheckedChange={(v) => void act("set_keep_lights_on", v)} />
       </label>
-      <select aria-label="Profile" disabled={off || profiles.length === 0} value=""
+      <select aria-label="Profile" disabled={!full || profiles.length === 0} value=""
         onChange={async (e) => { const p = e.target.value; if (p) { await act("apply_profile", p); await loadBackups(); } }}
         className="rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-[13px]">
         <option value="" disabled>Apply a profile…</option>
@@ -63,7 +64,7 @@ export function Flyout() {
           <Switch aria-label="Start with Windows" checked={settings.autostart} onCheckedChange={(v) => void setAppSettings({ autostart: v })} />
         </label>
         <div className="flex items-center justify-end gap-1">
-          <button type="button" aria-label="Restore" title="Restore newest backup" disabled={!newest || off}
+          <button type="button" aria-label="Restore" title="Restore newest backup" disabled={!newest || !full}
             onClick={() => setConfirmOpen(true)} className="rounded-md p-1.5 text-muted hover:text-ink disabled:opacity-40"><RotateCcw aria-hidden="true" className="size-4" /></button>
           <button type="button" aria-label="Quit" onClick={() => void windowAction("quit")} className="rounded-md p-1.5 text-muted hover:text-ink"><Power aria-hidden="true" className="size-4" /></button>
           <button type="button" onClick={() => void windowAction("show_main")} className="flex items-center gap-1 whitespace-nowrap rounded-md bg-accent px-2.5 py-1.5 font-medium text-on-accent">

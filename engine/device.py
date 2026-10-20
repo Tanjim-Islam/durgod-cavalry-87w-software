@@ -11,7 +11,8 @@ from typing import Callable
 from .codec.config import OFF_LINK
 from .codec.snapshot import Snapshot
 from .links.base import Link, LinkError, NotSupported
-from .protocol import MODEL_ID
+from .protocol import (CONFIG_SIZE, KEY_COLORS_SIZE, LAYER_COUNT, LAYER_SIZE, MACRO_SIZE, MODEL_ID,
+                       PALETTE_SIZE)
 from .store import Store, StoreError
 
 log = logging.getLogger("cavalry")
@@ -20,6 +21,10 @@ MIRROR_WARNING = "Saved to keyboard, but the local copy couldn't be saved"
 MIRROR_ERROR = "Couldn't save the local copy of your keyboard settings"
 CONFIG_BACKUP_EVERY_S = 60.0
 DRAIN_TIMEOUT_S = 65.0  # longer than Api.TIMEOUT_S, so a call the UI is still waiting on can finish
+
+
+NEEDS_CABLE = ("Plug in the cable and press Fn + PrtSc (wired mode) once, so the app can read your keys, "
+               "macros and colors. Lighting and settings already work over 2.4G.")
 
 
 class NotReady(RuntimeError):
@@ -66,6 +71,7 @@ class DeviceManager:
             log.warning("could not read mirror at startup: %s", e)
             self.snapshot = None
         self.partial = False
+        self.radio_config: bytes | None = None   # 2.4G before any cable read: the only block it can read
         self.asleep = False
         self.last_warning: str | None = None
         self.pending: Snapshot | None = None
@@ -99,6 +105,7 @@ class DeviceManager:
         if self.link:
             self._close(self.link)
         self.link = None
+        self.radio_config = None
         self._since = self._clock()
         if had:
             self._emit("state")
@@ -187,6 +194,7 @@ class DeviceManager:
             return
         factory_problem = None
         try:
+            cfg = None
             if link.kind == "wired":
                 snap = link.read_all()
                 if not self.store.has_factory():
@@ -214,6 +222,7 @@ class DeviceManager:
         if snap:
             self._persist(snap, MIRROR_ERROR)
         self.link, self.snapshot, self.partial = link, snap, partial
+        self.radio_config = cfg if partial else None
         if self.pending is not None and not partial:
             if not self._replay(snap):
                 return
@@ -240,10 +249,12 @@ class DeviceManager:
         if self.link is None:
             raise NotReady("Keyboard not connected (or still settling after a mode switch)")
         if self.partial or self.snapshot is None:
-            raise NotReady("Connect the cable once so the app can read your keyboard")
+            raise NotReady(NEEDS_CABLE)
 
-    def apply(self, mutator: Callable[[Snapshot], Snapshot]) -> Snapshot:
+    def apply(self, mutator: Callable[[Snapshot], Snapshot]) -> Snapshot | None:
         """Write mutator(current state). Failures raise; they are never sent as error events."""
+        if self.link is not None and self.link.kind == "radio" and (self.partial or not self.store.has_factory()):
+            return self._apply_config_only(mutator)
         self._ready()
         self.last_warning = None
         if self.link.kind == "wired":
@@ -265,6 +276,32 @@ class DeviceManager:
         self._backup(base, blocks)
         self._write(target, blocks)
         return target
+
+    def _apply_config_only(self, mutator: Callable[[Snapshot], Snapshot]) -> None:
+        """2.4G before the first cable read: only config (lighting, sleep, Win/Mac, debounce) can be
+        read back, so only edits that touch nothing else are allowed."""
+        cfg = self.link.read_config()
+        probe = Snapshot(cfg, [bytes(LAYER_SIZE) for _ in range(LAYER_COUNT)], bytes(MACRO_SIZE),
+                         bytes(KEY_COLORS_SIZE), bytes(PALETTE_SIZE))
+        target = _keep_link_byte(probe, mutator(probe.copy()))
+        if len(target.config) != CONFIG_SIZE:
+            raise NotReady(NEEDS_CABLE)
+        blocks = probe.changed_blocks(target)
+        if any(b != "config" for b in blocks):
+            raise NotReady(NEEDS_CABLE)
+        if blocks:
+            try:
+                self._push(target, ["config"])
+            except LinkError as e:
+                self._drop()
+                raise LinkError(f"Write interrupted: {e}") from e
+        if self.snapshot is not None:
+            self.snapshot.config = target.config
+            self._persist(self.snapshot, MIRROR_ERROR)
+        else:
+            self.radio_config = target.config
+        self._emit("state")
+        return None
 
     def restore(self, s: Snapshot) -> Snapshot:
         return self.apply(lambda _: s.copy())

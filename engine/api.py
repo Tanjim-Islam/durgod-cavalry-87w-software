@@ -179,6 +179,9 @@ class Api:
                "effects": [{"id": i, "name": n} for i, n in EFFECTS],
                "key_names": {str(k): v for k, v in KEY_SLOTS.items()}}
         if s is None:
+            if m.radio_config is not None:   # 2.4G before the first cable read
+                out["lighting"] = _lighting(Config(m.radio_config))
+                out["settings"] = _settings(Config(m.radio_config))
             return out
 
         def section(name: str, fn) -> None:

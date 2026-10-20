@@ -2,7 +2,7 @@ import type { KbState } from "@/bridge/types";
 
 export function pillText(s: KbState | null): string {
   if (!s || !s.link) return "Not connected";
-  if (s.partial) return "Connect the cable once";
+  if (s.partial && s.connected) return "2.4G · lighting and settings only";
   const kind = s.link === "wired" ? "Wired" : "2.4G";
   if (s.asleep) return `${kind} · keyboard asleep`;
   return s.connected ? `${kind} · connected` : `${kind} · connecting…`;

@@ -7,6 +7,7 @@ import { Card } from "@/components/Card";
 import { PageShell } from "@/components/PageShell";
 import { StateKeyboard } from "@/components/StateKeyboard";
 import { call } from "@/bridge/api";
+import { NEEDS_CABLE } from "@/lib/copy";
 import { useApp } from "@/state/app";
 
 type Confirm = { title: string; body: string; label: string; run: () => Promise<unknown> };
@@ -75,7 +76,7 @@ export function Profiles() {
   };
 
   return (
-    <PageShell title="Profiles" meta="Saved setups and automatic backups" keyboard={<StateKeyboard />}>
+    <PageShell title="Profiles" meta={state?.connected && state.partial ? NEEDS_CABLE : "Saved setups and automatic backups"} keyboard={<StateKeyboard />}>
       <Card title="Profiles">
         <div className="mb-3 flex gap-2">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Profile name" aria-label="Profile name" maxLength={40}

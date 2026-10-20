@@ -40,6 +40,6 @@ test("first-run 2.4G state asks for the cable and disables assigning", async () 
   useApp.setState({ state: { ...s, partial: true, layers: null, macros: null } });
   render(<AssignDialog open macroIndex={0} onClose={() => {}} />);
   await userEvent.click(await screen.findByRole("button", { name: "Esc" }));
-  expect(screen.getByText("Connect the cable once so the app can read your keyboard")).toBeInTheDocument();
+  expect(screen.getByText("Plug in the cable and press Fn + PrtSc (wired mode) once so the app can read your keys, macros and colors")).toBeInTheDocument();
   expect(assign()).toBeDisabled();
 });

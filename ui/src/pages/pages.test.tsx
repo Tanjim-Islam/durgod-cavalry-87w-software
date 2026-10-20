@@ -308,3 +308,20 @@ test("a double Enter or Save fires rename_profile once, and Esc does nothing whi
   await waitFor(() => expect(screen.getByRole("button", { name: "Rename Main" })).toHaveFocus());
   expect(api.rename_profile).toHaveBeenCalledTimes(1);
 });
+
+test("2.4G before the first cable read: settings and flyout lighting work, profiles wait for the cable", async () => {
+  installApi();
+  await useApp.getState().refresh();
+  const s = useApp.getState().state!;
+  useApp.setState({ state: { ...s, partial: true, layers: undefined, macros: undefined, palette: undefined, key_colors: undefined } });
+  const { unmount } = render(<Settings />);
+  expect(await screen.findByRole("radio", { name: "Mac" })).toBeEnabled();
+  unmount();
+  const f = render(<Flyout />);
+  expect(await screen.findByRole("switch", { name: "Keep lights on" })).toBeEnabled();
+  expect(screen.getByRole("combobox", { name: "Profile" })).toBeDisabled();
+  f.unmount();
+  render(<Profiles />);
+  expect(await screen.findByText(/press Fn \+ PrtSc/)).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "Apply Default" })).toBeDisabled();
+});

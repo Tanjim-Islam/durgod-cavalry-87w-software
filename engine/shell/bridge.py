@@ -95,6 +95,21 @@ def _hidden(fn):
     return fn
 
 
+CLOSE_KEYS = {0x3D, 0xE2, 0xE6}   # F4, Left Alt, Right Alt
+
+
+def _drop_close_keys(events: list) -> None:
+    """A close by Alt+F4 ends up at the end of the recording: trim that chord so the macro can't close windows.
+    Only a complete trailing chord is dropped, so no key is left held down."""
+    i = len(events)
+    while i and events[i - 1]["code"] in CLOSE_KEYS:
+        i -= 1
+    tail = events[i:]
+    balanced = all(sum(1 if e["release"] else -1 for e in tail if e["code"] == c) == 0 for c in CLOSE_KEYS)
+    if balanced and any(e["code"] == 0x3D and not e["release"] for e in tail):
+        del events[i:]
+
+
 class Bridge:
     """Everything public here is callable from the page; keep internals underscored."""
 
@@ -229,6 +244,7 @@ class Bridge:
         rec = self._recording[0]
         self._end_recording()
         self._rec_done = rec.stop()
+        self.push("recording_stopped", {})
 
     @_hidden
     def pause_recording(self) -> None:
@@ -236,6 +252,7 @@ class Bridge:
         with self._rec_lock:
             if self._recording:
                 self._park_recording()
+                _drop_close_keys(self._rec_done["events"])
 
     def _end_recording(self) -> None:
         """Caller holds _rec_lock: drop an active recording, its hook and its timer."""

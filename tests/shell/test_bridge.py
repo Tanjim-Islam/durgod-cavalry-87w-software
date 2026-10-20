@@ -367,3 +367,27 @@ def test_recording_auto_stops_after_the_timeout(b, monkeypatch):
     assert b.record_macro_stop() == {"events": [], "truncated": False}
     with pytest.raises(Exception, match="Not recording"):
         b.record_macro_stop()
+
+
+def test_pause_trims_a_closing_alt_f4_and_tells_the_page(b, monkeypatch):
+    from engine.shell.bridge import _drop_close_keys
+    pushed = []
+    monkeypatch.setattr(b, "push", lambda name, payload: pushed.append(name))
+
+    class FakeHook:
+        def __init__(self, cb): self.cb = cb
+        def start(self): pass
+        def stop(self): pass
+    monkeypatch.setattr("engine.shell.bridge.KeyboardHook", FakeHook)
+    b.record_macro_start()
+    rec = b._recording[0]
+    rec.on_key(0x48, True, False); rec.on_key(0x48, False, False)      # H tap
+    rec.on_key(0xA4, True, False); rec.on_key(0x73, True, False)       # Alt+F4 held when the window closes
+    b.pause_recording()
+    assert pushed == ["recording_stopped"]
+    assert [(e["code"], e["release"]) for e in b.record_macro_stop()["events"]] == [(0x0B, False), (0x0B, True)]
+
+    ev = lambda c, r: {"kind": "key", "code": c, "release": r, "delay_ms": 0}
+    held = [ev(0xE2, False), ev(0x3D, False)]      # unbalanced: keep, or Alt would stay down
+    _drop_close_keys(held)
+    assert len(held) == 2

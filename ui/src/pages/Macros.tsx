@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { call } from "@/bridge/api";
+import { call, onEvent } from "@/bridge/api";
 import type { Macro, MacroEvent } from "@/bridge/types";
 import { AssignDialog } from "@/components/AssignDialog";
 import { Card } from "@/components/Card";
@@ -74,6 +74,10 @@ export function Macros() {
     setDraft((d) => (d ? { ...d, events: r.events } : d));
     if (r.truncated) toast("Recording was cut off at the size limit");
   };
+  // The engine ended the recording (window sent to the tray, or the time limit): take what it kept.
+  const stopRef = useRef(stopRecord);
+  useLayoutEffect(() => { stopRef.current = stopRecord; });
+  useEffect(() => onEvent((e) => { if (e.name === "recording_stopped") void stopRef.current(); }), []);
   // The draft went away mid-recording (e.g. the keyboard disconnected): stop and drop the events.
   const orphaned = recording && !recBusy && !draft;
   useEffect(() => {

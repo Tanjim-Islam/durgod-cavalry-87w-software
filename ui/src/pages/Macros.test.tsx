@@ -173,3 +173,14 @@ test("Clear all macros is offered only when the macro memory reported an error",
   render(<Macros />);
   expect(screen.getByRole("button", { name: "Clear all macros" })).toBeInTheDocument();
 });
+
+test("when the engine ends the recording the page takes the kept events", async () => {
+  await useApp.getState().refresh();
+  render(<Macros />);
+  await userEvent.click(await screen.findByRole("button", { name: "New macro" }));
+  await userEvent.click(screen.getByRole("button", { name: "Record" }));
+  await screen.findByRole("button", { name: "Stop recording" });
+  window.__cavalryEmit?.({ name: "recording_stopped", payload: {} });
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop recording" })).not.toBeInTheDocument());
+  expect(await screen.findByText("H down")).toBeInTheDocument();
+});

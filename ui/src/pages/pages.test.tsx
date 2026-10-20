@@ -219,3 +219,50 @@ test("cancelling the replace prompt does not overwrite", async () => {
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(api.import_profile_dialog).not.toHaveBeenCalledWith(true);
 });
+
+test("rename a profile inline", async () => {
+  const api = installApi();
+  await useApp.getState().loadProfiles();
+  render(<Profiles />);
+  await userEvent.click(await screen.findByRole("button", { name: "Rename Default" }));
+  const input = screen.getByRole("textbox", { name: "New name for Default" });
+  await userEvent.clear(input);
+  await userEvent.type(input, "Main{Enter}");
+  expect(await screen.findByText("Main")).toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByText("Default")).not.toBeInTheDocument());
+  expect(api.rename_profile).toHaveBeenCalledWith("Default", "Main");
+});
+
+test("rename cancel with Esc keeps the name", async () => {
+  const api = installApi();
+  await useApp.getState().loadProfiles();
+  render(<Profiles />);
+  await userEvent.click(await screen.findByRole("button", { name: "Rename Default" }));
+  await userEvent.keyboard("{Escape}");
+  expect(screen.queryByRole("textbox", { name: /New name for/ })).not.toBeInTheDocument();
+  expect(calls(api, "rename_profile")).toBe(0);
+});
+
+test("focus returns to the renamed row's Rename button after a successful rename", async () => {
+  installApi();
+  await useApp.getState().loadProfiles();
+  render(<Profiles />);
+  await userEvent.click(await screen.findByRole("button", { name: "Rename Default" }));
+  const input = screen.getByRole("textbox", { name: "New name for Default" });
+  await userEvent.clear(input);
+  await userEvent.type(input, "Main{Enter}");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Rename Main" })).toHaveFocus());
+});
+
+test("a failed rename keeps the form open with the typed name", async () => {
+  const api = installApi();
+  api.rename_profile.mockImplementationOnce(async () => { throw new Error("a profile named 'Default' already exists"); });
+  await useApp.getState().loadProfiles();
+  render(<Profiles />);
+  await userEvent.click(await screen.findByRole("button", { name: "Rename Default" }));
+  const input = screen.getByRole("textbox", { name: "New name for Default" });
+  await userEvent.clear(input);
+  await userEvent.type(input, "Main{Enter}");
+  await waitFor(() => expect(api.rename_profile).toHaveBeenCalledWith("Default", "Main"));
+  expect(screen.getByRole("textbox", { name: "New name for Default" })).toHaveValue("Main");
+});

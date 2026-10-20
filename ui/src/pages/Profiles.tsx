@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Download, RotateCcw, Trash2, Upload } from "lucide-react";
+import { Download, Pencil, RotateCcw, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Card } from "@/components/Card";
@@ -12,14 +12,31 @@ import { useApp } from "@/state/app";
 type Confirm = { title: string; body: string; label: string; run: () => Promise<unknown> };
 
 export function Profiles() {
-  const { state, profiles, backups, loadProfiles, loadBackups, act } = useApp();
+  const { state, profiles, backups, loadProfiles, loadBackups, act, run } = useApp();
   const off = !state?.connected || state.partial;
   const [name, setName] = useState("");
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [open, setOpen] = useState(false);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const renameBtns = useRef(new Map<string, HTMLButtonElement>());
+  const focusRow = useRef<string | null>(null);
   useEffect(() => { void loadProfiles(); void loadBackups(); }, [loadProfiles, loadBackups]);
+  // Focus a row's Rename button once it exists (after a rename it appears on the next render).
+  useEffect(() => {
+    const btn = focusRow.current ? renameBtns.current.get(focusRow.current) : undefined;
+    if (btn) { btn.focus(); focusRow.current = null; }
+  }, [profiles, renaming]);
 
   const ask = (c: Confirm) => { setConfirm(c); setOpen(true); };
+  const stopRename = (p: string) => { focusRow.current = p; setRenaming(null); };
+  const submitRename = async (old: string) => {
+    const n = draft.trim();
+    if (!n || n === old) return;
+    if (await run<string[]>("rename_profile", old, n)) {
+      focusRow.current = n; setRenaming(null); await loadProfiles();
+    }
+  };
   const doSave = async (n: string) => {
     if (await act("save_profile", n)) { setName(""); await loadProfiles(); toast("Profile saved"); }
   };
@@ -68,16 +85,32 @@ export function Profiles() {
             {profiles.map((p) => (
               <motion.li key={p} layout initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }} className="flex items-center justify-between py-2 text-[13px]">
-                <span>{p}</span>
-                <span className="flex gap-1.5">
-                  <button type="button" aria-label={`Apply ${p}`} disabled={off}
-                    onClick={() => ask({ title: `Apply ${p}?`, body: "This writes the profile to your keyboard. A backup is taken first.", label: "Apply", run: () => act("apply_profile", p) })}
-                    className="rounded-md bg-surface-2 px-2.5 py-1 disabled:opacity-40">Apply</button>
-                  <button type="button" aria-label={`Export ${p}`} onClick={() => exportP(p)} className="rounded-md px-2 py-1 text-muted hover:text-ink"><Download aria-hidden="true" className="size-3.5" /></button>
-                  <button type="button" aria-label={`Delete ${p}`}
-                    onClick={() => ask({ title: `Delete ${p}?`, body: "The profile file is removed. Your keyboard is not changed.", label: "Delete", run: async () => { await act("delete_profile", p); await loadProfiles(); } })}
-                    className="rounded-md px-2 py-1 text-muted hover:text-ink"><Trash2 aria-hidden="true" className="size-3.5" /></button>
-                </span>
+                {renaming === p ? (
+                  <form className="flex w-full items-center gap-1.5" onSubmit={(e) => { e.preventDefault(); void submitRename(p); }}>
+                    <input autoFocus aria-label={`New name for ${p}`} value={draft} maxLength={40}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Escape") stopRename(p); }}
+                      className="flex-1 rounded-md border border-line bg-surface-2 px-2 py-1 text-[13px] outline-none focus:border-accent" />
+                    <button type="submit" disabled={!draft.trim() || draft.trim() === p}
+                      className="rounded-md bg-accent px-2.5 py-1 text-[13px] font-medium text-on-accent disabled:opacity-40">Save</button>
+                    <button type="button" onClick={() => stopRename(p)} className="rounded-md px-2 py-1 text-[13px] text-muted hover:text-ink">Cancel</button>
+                  </form>
+                ) : (
+                  <>
+                    <span>{p}</span>
+                    <span className="flex gap-1.5">
+                      <button type="button" aria-label={`Apply ${p}`} disabled={off}
+                        onClick={() => ask({ title: `Apply ${p}?`, body: "This writes the profile to your keyboard. A backup is taken first.", label: "Apply", run: () => act("apply_profile", p) })}
+                        className="rounded-md bg-surface-2 px-2.5 py-1 disabled:opacity-40">Apply</button>
+                      <button type="button" aria-label={`Rename ${p}`} ref={(el) => { if (el) renameBtns.current.set(p, el); else renameBtns.current.delete(p); }}
+                        onClick={() => { setRenaming(p); setDraft(p); }} className="rounded-md px-2 py-1 text-muted hover:text-ink"><Pencil aria-hidden="true" className="size-3.5" /></button>
+                      <button type="button" aria-label={`Export ${p}`} onClick={() => exportP(p)} className="rounded-md px-2 py-1 text-muted hover:text-ink"><Download aria-hidden="true" className="size-3.5" /></button>
+                      <button type="button" aria-label={`Delete ${p}`}
+                        onClick={() => ask({ title: `Delete ${p}?`, body: "The profile file is removed. Your keyboard is not changed.", label: "Delete", run: async () => { await act("delete_profile", p); await loadProfiles(); } })}
+                        className="rounded-md px-2 py-1 text-muted hover:text-ink"><Trash2 aria-hidden="true" className="size-3.5" /></button>
+                    </span>
+                  </>
+                )}
               </motion.li>
             ))}
           </AnimatePresence>

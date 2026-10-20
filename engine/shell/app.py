@@ -71,30 +71,29 @@ def fix_fragment(url: str) -> str:
     return base + sep + frag.replace("\\", "/")
 
 
-def flyout_origin(cursor, work, monitor_scale: float, window_scale: float, size) -> tuple[int, int]:
+def flyout_origin(cursor, work, scale: float, size) -> tuple[int, int]:
     """Place in physical pixels, then return the logical point pywebview's move() scales back up."""
-    phys = (round(size[0] * monitor_scale), round(size[1] * monitor_scale))
-    x, y = place(cursor, work, phys)
-    return round(x / window_scale), round(y / window_scale)
+    x, y = place(cursor, work, (round(size[0] * scale), round(size[1] * scale)))
+    return round(x / scale), round(y / scale)
 
 
 _user32 = ctypes.windll.user32
-_user32.GetThreadDpiAwarenessContext.restype = ctypes.c_void_p
-_user32.GetAwarenessFromDpiAwarenessContext.argtypes = [ctypes.c_void_p]
 _user32.GetDpiForWindow.argtypes = [ctypes.c_void_p]
 
 
-def _monitor_scale(mon) -> float:
-    """DPI scale of a monitor in the calling thread's coordinate space."""
+def _dpi_aware() -> None:
+    """The same system-aware model pywebview sets, but before the tray thread reads any coordinates."""
     try:
-        if _user32.GetAwarenessFromDpiAwarenessContext(_user32.GetThreadDpiAwarenessContext()) == 2:
-            dx, dy = ctypes.c_uint(), ctypes.c_uint()
-            if ctypes.windll.shcore.GetDpiForMonitor(ctypes.c_void_p(int(mon)), 0, ctypes.byref(dx),
-                                                     ctypes.byref(dy)) == 0 and dx.value:
-                return dx.value / 96
-        return (_user32.GetDpiForSystem() or 96) / 96
+        _user32.SetProcessDPIAware()
     except (AttributeError, OSError):
-        return 1.0
+        log.warning("could not make the process DPI aware")
+
+
+def _window_scale(window) -> float:
+    """The scale pywebview's move()/resize() multiply by: the window's DPI (system DPI when system aware)."""
+    hwnd = _hwnd(window)
+    dpi = _user32.GetDpiForWindow(hwnd) if hwnd else 0
+    return (dpi or _user32.GetDpiForSystem() or 96) / 96
 
 
 def _hwnd(window) -> int | None:
@@ -123,6 +122,7 @@ def setup_logging(log_dir: Path) -> None:
         RotatingFileHandler(log_dir / "app.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8")]
     if sys.stderr is not None:
         handlers.append(logging.StreamHandler())
+    handlers[0].setLevel(logging.INFO)  # pywebview logs at DEBUG in --dev; keep that out of the file
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     root = logging.getLogger()
     root.setLevel(logging.INFO)
@@ -144,6 +144,7 @@ class Windows:
                                             resizable=False, background_color="#1a1a1a", easy_drag=False)
         self._quitting = False
         self.main.events.closing += self._on_close
+        self.flyout.events.closing += self._on_flyout_close
         self.flyout.events.initialized += self._fix_flyout_url
 
     def _fix_flyout_url(self):
@@ -156,6 +157,12 @@ class Windows:
         self.main.hide()
         return False
 
+    def _on_flyout_close(self):
+        if self._quitting or win32api.GetSystemMetrics(SM_SHUTTINGDOWN):
+            return True
+        self.flyout.hide()
+        return False
+
     def show_main(self) -> None:
         self.flyout.hide()
         self.main.show()
@@ -166,10 +173,9 @@ class Windows:
     def show_flyout(self, cursor) -> None:
         mon = win32api.MonitorFromPoint(cursor, win32con.MONITOR_DEFAULTTONEAREST)
         work = win32api.GetMonitorInfo(mon)["Work"]
-        mscale = _monitor_scale(mon)
-        hwnd = _hwnd(self.flyout)
-        wscale = _user32.GetDpiForWindow(hwnd) / 96 if hwnd else mscale
-        self.flyout.move(*flyout_origin(cursor, work, mscale, wscale or mscale, FLYOUT_SIZE))
+        # The frameless form loses its border after sizing, so set the outer size again before placing.
+        self.flyout.resize(*FLYOUT_SIZE)
+        self.flyout.move(*flyout_origin(cursor, work, _window_scale(self.flyout), FLYOUT_SIZE))
         self.flyout.show()
 
     def hide_flyout(self) -> None:
@@ -210,6 +216,7 @@ def _quietly(fn) -> None:
 
 
 def main(argv: list[str]) -> int:
+    _dpi_aware()
     dev, tray_only = "--dev" in argv, "--tray" in argv
     if not single.acquire():
         single.focus_existing(TITLE)
@@ -231,7 +238,7 @@ def main(argv: list[str]) -> int:
         bridge.start()
         worker.start()
         tray.start()
-        webview.start(debug=dev, http_server=not dev, private_mode=False,
+        webview.start(debug=dev, http_server=not dev, private_mode=True,
                       storage_path=str(root / "webview"), icon=str(ICON))
     finally:
         for step in (bridge.stop, tray.stop, worker.stop):

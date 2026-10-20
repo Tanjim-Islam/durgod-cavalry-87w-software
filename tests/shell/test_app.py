@@ -1,8 +1,10 @@
 import inspect
 import logging
+from types import SimpleNamespace
 
 import pytest
 
+from engine.shell import app
 from engine.shell.app import (EXPOSED, ShortApiErrors, build_engine, exposed_functions, fix_fragment,
                               flyout_origin, ui_url)
 from engine.shell.bridge import API_METHODS, Bridge
@@ -73,12 +75,79 @@ def test_fix_fragment_restores_forward_slashes():
 
 
 def test_flyout_origin_converts_physical_to_logical():
-    # 150% monitor: 320x470 logical -> 480x705 physical, placed above a bottom taskbar
-    x, y = flyout_origin(cursor=(1500, 1590), work=(0, 0, 2560, 1560), monitor_scale=1.5,
-                         window_scale=1.5, size=(320, 470))
+    # 150% system DPI: 320x470 logical -> 480x705 physical, placed above a bottom taskbar
+    x, y = flyout_origin(cursor=(1500, 1590), work=(0, 0, 2560, 1560), scale=1.5, size=(320, 470))
     assert (x, y) == (round((1500 - 240) / 1.5), round((1560 - 12 - 705) / 1.5))
     # 100%: identity
-    assert flyout_origin((1500, 1050), (0, 0, 1920, 1032), 1.0, 1.0, (320, 470)) == (1340, 1032 - 12 - 470)
+    assert flyout_origin((1500, 1050), (0, 0, 1920, 1032), 1.0, (320, 470)) == (1340, 1032 - 12 - 470)
+
+
+class _Event(list):
+    def __iadd__(self, fn):
+        self.append(fn)
+        return self
+
+    def fire(self):
+        return [fn() for fn in self]
+
+
+class _Window:
+    def __init__(self, title, url, **kw):
+        self.title, self.url, self.kw, self.calls = title, url, kw, []
+        self.events = SimpleNamespace(closing=_Event(), initialized=_Event())
+        self.dialog_result = None
+
+    def __getattr__(self, name):
+        return lambda *a, **k: self.calls.append((name, a))
+
+    def create_file_dialog(self, *a, **k):
+        return self.dialog_result
+
+
+@pytest.fixture
+def wins(monkeypatch):
+    monkeypatch.setattr(app.webview, "create_window", lambda title, url, **kw: _Window(title, url, **kw))
+    monkeypatch.setattr(app.win32api, "GetSystemMetrics", lambda i: 0)
+    return app.Windows("C:/ui/index.html", start_hidden=False)
+
+
+def test_main_close_hides_unless_quitting(wins):
+    assert wins.main.events.closing.fire() == [False]
+    assert ("hide", ()) in wins.main.calls
+    wins.quit()
+    assert wins.main.events.closing.fire() == [True]
+    assert ("destroy", ()) in wins.main.calls and ("destroy", ()) in wins.flyout.calls
+
+
+def test_flyout_close_hides_unless_quitting(wins):
+    assert wins.flyout.events.closing.fire() == [False]
+    assert ("hide", ()) in wins.flyout.calls
+    wins._quitting = True
+    assert wins.flyout.events.closing.fire() == [True]
+
+
+def test_flyout_url_fragment_is_fixed_after_resolve(wins):
+    assert wins.flyout.url == "C:/ui/index.html#/flyout"
+    wins.flyout.real_url = "http://127.0.0.1:5000/index.html#\\flyout"
+    wins.flyout.events.initialized.fire()
+    assert wins.flyout.real_url == "http://127.0.0.1:5000/index.html#/flyout"
+
+
+@pytest.mark.parametrize("result,expected", [(("C:/a.json",), "C:/a.json"), (None, None), ((), None),
+                                             ("C:/b.json", "C:/b.json")])
+def test_dialogs_unwrap_to_str_or_none(wins, result, expected):
+    wins.main.dialog_result = result
+    assert wins.save_dialog("p") == expected
+    assert wins.open_dialog() == expected
+
+
+def test_show_flyout_resizes_then_moves_then_shows(wins, monkeypatch):
+    monkeypatch.setattr(app.win32api, "MonitorFromPoint", lambda p, f: 1)
+    monkeypatch.setattr(app.win32api, "GetMonitorInfo", lambda m: {"Work": (0, 0, 1920, 1032)})
+    monkeypatch.setattr(app, "_window_scale", lambda w: 1.0)
+    wins.show_flyout((1500, 1050))
+    assert [c for c in wins.flyout.calls if c[0] in ("resize", "move", "show")] == [
+        ("resize", (320, 470)), ("move", (1340, 550)), ("show", ())]
 
 
 def _record(msg, name="pywebview", level=logging.ERROR):

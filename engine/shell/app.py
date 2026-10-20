@@ -29,7 +29,8 @@ TITLE = "Cavalry 87W"
 FLYOUT_SIZE = (320, 470)
 SM_SHUTTINGDOWN = 0x2000
 EXPOSED = API_METHODS + ("set_app_settings", "export_profile_dialog", "import_profile_dialog",
-                         "show_main", "hide_flyout", "minimize", "quit")
+                         "show_main", "hide_flyout", "minimize", "quit", "record_macro_start",
+                         "record_macro_stop")
 log = logging.getLogger("cavalry")
 
 

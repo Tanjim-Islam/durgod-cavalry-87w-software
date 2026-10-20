@@ -207,7 +207,7 @@ def test_page_sees_only_the_intended_surface(tmp_path):
     try:
         assert _pywebview_functions(bridge) == set(API_METHODS) | {
             "set_app_settings", "export_profile_dialog", "import_profile_dialog",
-            "show_main", "hide_flyout", "minimize", "quit"}
+            "show_main", "hide_flyout", "minimize", "quit", "record_macro_start", "record_macro_stop"}
     finally:
         bridge.stop()
 
@@ -279,3 +279,33 @@ def test_replace_after_a_name_clash_reuses_the_picked_file(b):
     assert seen == [("C:/x/1.cavalry.json", False), ("C:/x/1.cavalry.json", True)]
     b.import_profile_dialog(True)
     assert len(picks) == 2
+
+
+def test_recorder_methods(b, monkeypatch):
+    calls = []
+
+    class FakeHook:
+        def __init__(self, cb): calls.append("init"); self.cb = cb
+        def start(self): calls.append("start")
+        def stop(self): calls.append("stop")
+    monkeypatch.setattr("engine.shell.bridge.KeyboardHook", FakeHook)
+    b.record_macro_start()
+    out = b.record_macro_stop()
+    assert out == {"events": [], "truncated": False} and calls == ["init", "start", "stop"]
+    with pytest.raises(Exception):
+        b.record_macro_stop()
+
+
+def test_stop_ends_an_active_recording(b, monkeypatch):
+    calls = []
+
+    class FakeHook:
+        def __init__(self, cb): pass
+        def start(self): pass
+        def stop(self): calls.append("stop")
+    monkeypatch.setattr("engine.shell.bridge.KeyboardHook", FakeHook)
+    b.record_macro_start()
+    with pytest.raises(Exception):
+        b.record_macro_start()
+    b.stop()
+    assert calls == ["stop"]

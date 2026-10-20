@@ -223,6 +223,24 @@ class Store:
     def delete_profile(self, name: str) -> None:
         (self.root / "profiles" / f"{self._name(name)}.json").unlink(missing_ok=True)
 
+    def rename_profile(self, old: str, new: str) -> str:
+        old, new = self._name(old), self._name(new)
+        src = self.root / "profiles" / f"{old}.json"
+        if not src.exists():
+            raise StoreError(f"no profile named {old!r}")
+        if new.lower() != old.lower() and (self.root / "profiles" / f"{new}.json").exists():
+            raise ProfileExists(f"a profile named {new!r} already exists")
+        s = self.load_profile(old)
+        aside = src.with_name(src.name + ".renaming")   # also makes case-only renames work on NTFS
+        src.replace(aside)
+        try:
+            self.save_profile(new, s)
+        except BaseException:
+            aside.replace(src)
+            raise
+        aside.unlink()
+        return new
+
     def export_profile(self, name: str, path: Path) -> None:
         self._write(Path(path), self._read(self.root / "profiles" / f"{self._name(name)}.json"))
 

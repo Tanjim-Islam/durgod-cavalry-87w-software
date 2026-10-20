@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from engine.codec.snapshot import Snapshot
-from engine.store import Settings, Store, StoreError
+from engine.store import ProfileExists, Settings, Store, StoreError
 
 
 @pytest.fixture
@@ -374,3 +374,18 @@ def test_transient_read_error_on_mirror_raises_and_keeps_file(tmp_path, snap, mo
     assert (tmp_path / "mirror.json").exists()
     assert not list(tmp_path.glob("mirror.corrupt-*.json"))
     assert st.load_mirror_or_none().to_json() == snap.to_json()
+
+
+def test_rename_profile(tmp_path, snap):
+    st = Store(tmp_path)
+    st.save_profile("Gaming", snap); st.save_profile("Work", snap)
+    assert st.rename_profile("Gaming", "Games") == "Games"
+    assert st.list_profiles() == ["Games", "Work"]
+    assert st.load_profile("Games").to_json() == snap.to_json()
+    with pytest.raises(ProfileExists):
+        st.rename_profile("Games", "work")
+    with pytest.raises(StoreError):
+        st.rename_profile("Nope", "X")
+    with pytest.raises(StoreError):
+        st.rename_profile("Games", "../x")
+    assert st.rename_profile("Games", "games") == "games" and st.list_profiles() == ["Work", "games"]

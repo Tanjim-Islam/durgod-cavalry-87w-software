@@ -478,3 +478,11 @@ def test_event_contract_is_documented():
     import engine.api
     for name in ("state", "link", "error", "mirror_mismatch", "online"):
         assert name in engine.api.__doc__
+
+
+def test_rename_profile(api):
+    a, kb = api
+    a.save_profile("One")
+    assert a.rename_profile("One", "Two") == ["Two"]
+    with pytest.raises(ApiError):
+        a.rename_profile("Missing", "X")

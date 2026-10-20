@@ -389,6 +389,11 @@ class Api:
         return self.list_profiles()
 
     @_guarded
+    def rename_profile(self, old: str, new: str):
+        self.store.rename_profile(old, new)
+        return self.list_profiles()
+
+    @_guarded
     def apply_profile(self, name: str):
         s = self.store.load_profile(name)
         return self._apply(lambda _: s.copy())

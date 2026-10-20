@@ -22,3 +22,13 @@ test("every color swatch has a visible edge and only the selected one has the ou
   const selected = swatches.filter((s) => s.getAttribute("aria-checked") === "true");
   for (const s of swatches) expect(/ring-2/.test(s.className)).toBe(selected.includes(s));
 });
+
+test("editing a palette color and saving updates the keyboard state", async () => {
+  await useApp.getState().refresh();
+  const { fireEvent } = await import("@testing-library/react");
+  render(<Lighting />);
+  await userEvent.click(await screen.findByRole("radio", { name: "Go with the Flow" }));
+  fireEvent.input(await screen.findByLabelText("Edit color 1"), { target: { value: "#123456" } });
+  await userEvent.click(screen.getByRole("button", { name: "Save colors" }));
+  await waitFor(() => expect(useApp.getState().state?.palette?.[11][0]).toEqual([18, 52, 86]));
+});

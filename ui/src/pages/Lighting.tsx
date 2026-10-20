@@ -1,27 +1,51 @@
+import { useState } from "react";
+import type { RGB } from "@/bridge/types";
 import { Switch } from "@/components/ui/switch";
 import { Card } from "@/components/Card";
 import { EffectRow } from "@/components/EffectRow";
 import { Keyboard } from "@/components/Keyboard";
 import { LevelSlider } from "@/components/LevelSlider";
+import { KeyPainter } from "@/components/KeyPainter";
 import { PageShell } from "@/components/PageShell";
+import { PaletteEditor } from "@/components/PaletteEditor";
 import { useApp } from "@/state/app";
 
 export function Lighting() {
   const { state, act } = useApp();
   const l = state?.lighting;
   const off = !state?.connected || state.partial;
-  const group = l && state?.palette ? state.palette[l.effect] ?? state.palette[0] : null;
+  const [draft, setDraft] = useState<RGB[] | null>(null);
+  const game = l?.effect === 18;
+  // While a palette draft exists, the preview and swatches show it instead of the saved colors.
+  const palette = l && draft && state?.palette ? state.palette.map((g, i) => (i === l.effect ? draft : g)) : state?.palette;
+  const group = l && palette ? palette[l.effect] ?? palette[0] : null;
+  const editable = !off && !!l;
   const set = (k: string, v: unknown) => {
     const args: Record<string, unknown> = { effect: null, brightness: null, speed: null, color: null, direction: null, [k]: v };
     return act("set_lighting", args.effect, args.brightness, args.speed, args.color, args.direction);
   };
   return (
     <PageShell title="Lighting" meta={off ? "Connect the keyboard to change lighting" : "Saved on the keyboard"}
-      keyboard={<Keyboard lighting={l} palette={state?.palette} keyColors={state?.key_colors} />}>
+      keyboard={game ? null : <Keyboard lighting={l} palette={palette} keyColors={state?.key_colors} />}>
       {state?.lighting_error && <p className="text-xs text-accent">{state.lighting_error}</p>}
       <Card title="Effect">
         <EffectRow effects={state?.effects ?? []} value={l?.effect} disabled={off} onChange={(id) => void set("effect", id)} />
       </Card>
+      {l && (game ? (
+        <Card title="Key colors">
+          {state?.key_colors ? (
+            <KeyPainter keyColors={state.key_colors} disabled={off}
+              onSave={(colors) => act("set_key_colors", colors)} />
+          ) : <p className="text-xs text-muted">{state?.key_colors_error || "Key colors aren't available yet."}</p>}
+        </Card>
+      ) : (
+        <Card title="Palette">
+          {state?.palette ? (
+            <PaletteEditor key={l.effect} effect={l.effect} palette={state.palette} disabled={!editable}
+              onSave={(effect, colors) => act("set_palette", effect, colors)} onDraft={setDraft} />
+          ) : <p className="text-xs text-muted">{state?.palette_error || "Palette isn't available yet."}</p>}
+        </Card>
+      ))}
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <Card><LevelSlider label="Brightness" value={l?.brightness} max={4} disabled={off} onCommit={(v) => set("brightness", v)} /></Card>
         <Card><LevelSlider label="Speed" value={l?.speed} max={4} disabled={off} onCommit={(v) => set("speed", v)} /></Card>

@@ -6,12 +6,14 @@ import { brightnessOpacity, isAnimated, previewColor } from "@/lib/effects";
 interface Props {
   lighting?: Lighting | null; palette?: RGB[][] | null; keyColors?: RGB[] | null;
   selected?: number | null; marks?: Set<number>; onKeyClick?: (slot: number) => void; unit?: number;
+  // Drag painting: fired on pointer down, and on pointer enter only while the primary button is held.
+  onKeyPaint?: (slot: number) => void;
 }
 
 // Caps are dark in both themes, so captions use a fixed light color rather than the theme ink.
 const CAPTION = "rgba(255, 255, 255, 0.72)";
 
-export function Keyboard({ lighting, palette, keyColors, selected, marks, onKeyClick, unit = 30 }: Props) {
+export function Keyboard({ lighting, palette, keyColors, selected, marks, onKeyClick, unit = 30, onKeyPaint }: Props) {
   const reduce = useReducedMotion();
   const o = brightnessOpacity(lighting?.brightness);
   const pulse = !!lighting && isAnimated(lighting.effect) && lighting.brightness !== 0 && !reduce;
@@ -37,6 +39,10 @@ export function Keyboard({ lighting, palette, keyColors, selected, marks, onKeyC
         return onKeyClick ? (
           <motion.button key={k.slot} type="button" aria-pressed={selected === k.slot}
             onClick={() => onKeyClick(k.slot)} whileHover={{ y: -1 }} whileTap={{ y: 1 }}
+            {...(onKeyPaint ? {
+              onPointerDown: () => onKeyPaint(k.slot),
+              onPointerEnter: (e: React.PointerEvent) => { if (e.buttons === 1) onKeyPaint(k.slot); },
+            } : {})}
             {...(marks?.has(k.slot) ? { "aria-description": "remapped" } : {})} {...props}>
             {text}{dot}
           </motion.button>

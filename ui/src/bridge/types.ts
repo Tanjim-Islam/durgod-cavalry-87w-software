@@ -23,7 +23,8 @@ export interface KbState {
   effects: { id: number; name: string }[]; key_names: Record<string, string>;
   lighting?: Lighting | null; settings?: KbSettings | null; layers?: Action[][] | null;
   macros?: Macro[] | null; key_colors?: RGB[] | null; palette?: RGB[][] | null;
-  lighting_error?: string; macros_error?: string; warning?: string;
+  lighting_error?: string; settings_error?: string; layers_error?: string; macros_error?: string;
+  key_colors_error?: string; palette_error?: string; warning?: string;
 }
 export interface ShortcutRow {
   keys: string; group: string; label: string; slot: number | null; current: string;

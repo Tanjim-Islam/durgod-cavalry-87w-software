@@ -91,7 +91,14 @@ export function createMock(emit: (e: DeviceEvent) => void) {
       return { ...settings };
     },
     async export_profile_dialog(name: string) { await wait(); return `C:/Users/you/Documents/${name}.cavalry.json`; },
-    async import_profile_dialog() { await wait(); return null; },
+    async import_profile_dialog(overwrite = false) {
+      await wait();
+      const name = "Imported";
+      if (profiles.includes(name) && !overwrite)
+        fail(`Not imported: a profile named '${name}' already exists. Import again with overwrite to replace it.`);
+      profiles = [...new Set([...profiles, name])].sort();
+      return name;
+    },
     async show_main() {}, async hide_flyout() {}, async minimize() {}, async quit() {},
   };
 }

@@ -10,6 +10,7 @@ from concurrent.futures import Future
 from typing import Callable, Protocol
 
 from ..api import Api, ApiError
+from ..store import ProfileExists
 
 log = logging.getLogger("cavalry")
 
@@ -102,6 +103,7 @@ class Bridge:
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._closed = False
+        self._clash_path: str | None = None
         for name in API_METHODS:
             setattr(self, name, _plain(getattr(api, name)))
         api.subscribe(self.push)
@@ -166,8 +168,17 @@ class Bridge:
         return path
 
     def import_profile_dialog(self, overwrite: bool = False):
-        path = self._host.open_dialog()
-        return _plain(self._api.import_profile)(path, overwrite) if path else None
+        # "Replace" after a name clash imports the file already picked instead of asking again.
+        path = self._clash_path if overwrite and self._clash_path else self._host.open_dialog()
+        self._clash_path = None
+        if not path:
+            return None
+        try:
+            return self._api.import_profile(path, overwrite)
+        except ApiError as e:
+            if not overwrite and isinstance(e.__cause__, ProfileExists):
+                self._clash_path = path
+            raise Exception(str(e)) from None
 
     def show_main(self): self._host.show_main()
     def hide_flyout(self): self._host.hide_flyout()

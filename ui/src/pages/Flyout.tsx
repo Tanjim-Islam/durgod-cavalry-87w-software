@@ -10,17 +10,18 @@ import { windowAction } from "@/bridge/api";
 import { useApp } from "@/state/app";
 
 export function Flyout() {
-  const { state, act, profiles, backups, settings, loadProfiles, loadBackups, loadSettings, setAppSettings } = useApp();
+  const { state, act, profiles, backups, settings, refresh, loadProfiles, loadBackups, loadSettings, setAppSettings } = useApp();
   const [confirmOpen, setConfirmOpen] = useState(false);
   // The window is hidden and re-shown rather than remounted, so reload whenever it comes back.
   useEffect(() => {
-    const reload = () => { void loadProfiles(); void loadBackups(); void loadSettings(); };
+    const load = () => { void loadProfiles(); void loadBackups(); void loadSettings(); };
+    const reload = () => { void refresh(); load(); };  // App already fetched state on mount
     const onVisible = () => { if (document.visibilityState === "visible") reload(); };
-    reload();
+    load();
     addEventListener("focus", reload);
     document.addEventListener("visibilitychange", onVisible);
     return () => { removeEventListener("focus", reload); document.removeEventListener("visibilitychange", onVisible); };
-  }, [loadProfiles, loadBackups, loadSettings]);
+  }, [refresh, loadProfiles, loadBackups, loadSettings]);
   useEffect(() => {
     const hide = () => void windowAction("hide_flyout");
     // While the confirm dialog is open, Esc only closes the dialog.

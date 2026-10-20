@@ -34,9 +34,17 @@ export function Profiles() {
     try { const path = await call<string | null>("export_profile_dialog", p); if (path) toast(`Exported to ${path}`); }
     catch (e) { toast.error((e as Error).message); }
   };
-  const importP = async () => {
-    try { const n = await call<string | null>("import_profile_dialog"); if (n) { toast(`Imported ${n}`); await loadProfiles(); } }
-    catch (e) { toast.error((e as Error).message); }
+  const importP = async (overwrite = false) => {
+    try {
+      const n = await call<string | null>("import_profile_dialog", overwrite);
+      if (n) { toast(`Imported ${n}`); await loadProfiles(); }
+    } catch (e) {
+      const msg = (e as Error).message;
+      const clash = overwrite ? null : /a profile named (['"])(.+)\1 already exists/.exec(msg);
+      if (clash) ask({ title: `Replace existing profile ${clash[2]}?`, label: "Replace", run: () => importP(true),
+        body: "The saved profile with this name is replaced by the imported file. Your keyboard is not changed." });
+      else toast.error(msg);
+    }
   };
   const confirmed = async () => {
     setOpen(false);
@@ -52,7 +60,7 @@ export function Profiles() {
             className="flex-1 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-[13px] outline-none focus:border-accent" />
           <button type="button" disabled={!name.trim()} onClick={save}
             className="rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-on-accent disabled:opacity-40">Save current</button>
-          <button type="button" onClick={importP} className="rounded-lg border border-line px-3 py-1.5 text-[13px]">
+          <button type="button" onClick={() => void importP()} className="rounded-lg border border-line px-3 py-1.5 text-[13px]">
             <Upload aria-hidden="true" className="mr-1 inline size-3.5" />Import</button>
         </div>
         <ul className="divide-y divide-line">

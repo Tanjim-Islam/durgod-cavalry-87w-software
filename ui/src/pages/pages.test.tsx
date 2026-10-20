@@ -147,13 +147,16 @@ test("flyout reloads backups when it regains focus or becomes visible, and after
   await useApp.getState().refresh();
   render(<Flyout />);
   await waitFor(() => expect(calls(api, "list_backups")).toBe(1));
+  const states = calls(api, "get_state");
   fireEvent.focus(window);
   await waitFor(() => expect(calls(api, "list_backups")).toBe(2));
   expect(calls(api, "list_profiles")).toBe(2);
   expect(calls(api, "get_app_settings")).toBe(2);
+  expect(calls(api, "get_state")).toBe(states + 1);
 
   document.dispatchEvent(new Event("visibilitychange"));
   await waitFor(() => expect(calls(api, "list_backups")).toBe(3));
+  expect(calls(api, "get_state")).toBe(states + 2);
 
   const select = screen.getByRole("combobox", { name: "Profile" });
   await waitFor(() => expect(select).toBeEnabled());
@@ -186,4 +189,33 @@ test("every page shows the keyboard preview", async () => {
     expect(await screen.findByRole("img", { name: "Keyboard lighting preview" })).toBeInTheDocument();
     unmount();
   }
+});
+
+test("importing a profile whose name exists asks to replace it, then imports with overwrite", async () => {
+  const api = installApi();
+  await useApp.getState().refresh();
+  render(<Profiles />);
+  await screen.findByText("Default");
+  await userEvent.click(screen.getByRole("button", { name: "Import" }));
+  expect(await screen.findByText("Imported")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Import" }));
+  expect(await screen.findByText("Replace existing profile Imported?")).toBeInTheDocument();
+  expect(api.import_profile_dialog).toHaveBeenLastCalledWith(false);
+  await userEvent.click(screen.getByRole("button", { name: "Replace" }));
+  await waitFor(() => expect(api.import_profile_dialog).toHaveBeenLastCalledWith(true));
+  expect(calls(api, "import_profile_dialog")).toBe(3);
+});
+
+test("cancelling the replace prompt does not overwrite", async () => {
+  const api = installApi();
+  api.import_profile_dialog.mockImplementation(async (overwrite?: boolean) => {
+    if (!overwrite) throw new Error("Not imported: a profile named 'Default' already exists. Import again with overwrite to replace it.");
+    return "Default";
+  });
+  render(<Profiles />);
+  await userEvent.click(await screen.findByRole("button", { name: "Import" }));
+  expect(await screen.findByText("Replace existing profile Default?")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(api.import_profile_dialog).not.toHaveBeenCalledWith(true);
 });

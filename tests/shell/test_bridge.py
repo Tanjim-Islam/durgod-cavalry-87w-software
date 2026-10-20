@@ -255,3 +255,27 @@ def test_courier_logs_a_failing_window_and_still_delivers_to_the_rest():
 
     Courier(timeout=1).send({"main": boom, "flyout": got.append}, "e")
     assert got == ["e"]
+
+
+def test_replace_after_a_name_clash_reuses_the_picked_file(b):
+    from engine.store import ProfileExists
+    picks, seen = [], []
+    b._host.open_dialog = lambda: picks.append(1) or f"C:/x/{len(picks)}.cavalry.json"
+
+    def imp(path, overwrite=False):
+        seen.append((path, overwrite))
+        if not overwrite:
+            try:
+                raise ProfileExists("a profile named 'Gaming' already exists")
+            except ProfileExists as e:
+                raise ApiError(f"Not imported: {e}. Import again with overwrite to replace it.") from e
+        return "Gaming"
+
+    b._api.import_profile = imp
+    with pytest.raises(Exception, match="already exists"):
+        b.import_profile_dialog()
+    assert b.import_profile_dialog(True) == "Gaming"
+    assert len(picks) == 1
+    assert seen == [("C:/x/1.cavalry.json", False), ("C:/x/1.cavalry.json", True)]
+    b.import_profile_dialog(True)
+    assert len(picks) == 2

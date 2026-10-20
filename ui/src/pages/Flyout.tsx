@@ -57,17 +57,17 @@ export function Flyout() {
         <option value="" disabled>Apply a profile…</option>
         {profiles.map((p) => <option key={p} value={p}>{p}</option>)}
       </select>
-      <div className="mt-auto flex items-center justify-between border-t border-line pt-3 text-[12px]">
-        <label className="flex items-center gap-2 text-muted">
-          <Switch aria-label="Start with Windows" checked={settings.autostart} onCheckedChange={(v) => void setAppSettings({ autostart: v })} />Start with Windows
+      <div className="mt-auto flex flex-col gap-2.5 border-t border-line pt-3 text-[12px]">
+        <label className="flex items-center justify-between whitespace-nowrap text-muted">Start with Windows
+          <Switch aria-label="Start with Windows" checked={settings.autostart} onCheckedChange={(v) => void setAppSettings({ autostart: v })} />
         </label>
-        <span className="flex gap-1">
+        <div className="flex items-center justify-end gap-1">
           <button type="button" aria-label="Restore" title="Restore newest backup" disabled={!newest || off}
             onClick={() => setConfirmOpen(true)} className="rounded-md p-1.5 text-muted hover:text-ink disabled:opacity-40"><RotateCcw aria-hidden="true" className="size-4" /></button>
           <button type="button" aria-label="Quit" onClick={() => void windowAction("quit")} className="rounded-md p-1.5 text-muted hover:text-ink"><Power aria-hidden="true" className="size-4" /></button>
-          <button type="button" onClick={() => void windowAction("show_main")} className="flex items-center gap-1 rounded-md bg-accent px-2.5 py-1.5 font-medium text-on-accent">
+          <button type="button" onClick={() => void windowAction("show_main")} className="flex items-center gap-1 whitespace-nowrap rounded-md bg-accent px-2.5 py-1.5 font-medium text-on-accent">
             Open app<SquareArrowOutUpRight aria-hidden="true" className="size-3.5" /></button>
-        </span>
+        </div>
       </div>
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent className="border-line bg-surface" showCloseButton={false}>

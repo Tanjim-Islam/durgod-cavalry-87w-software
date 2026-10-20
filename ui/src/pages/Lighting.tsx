@@ -30,8 +30,8 @@ export function Lighting() {
             {[...(group ?? []), null].map((c, i) => (
               <button key={i} type="button" role="radio" aria-checked={l?.color === i} aria-label={c ? `Color ${i + 1}` : "Multicolor"}
                 disabled={off || l?.color == null} onClick={() => void set("color", i)}
-                className={`size-6 rounded-full border-2 transition-transform hover:scale-110
-                  ${l?.color === i ? "border-ink" : "border-transparent"}`}
+                className={`size-6 rounded-full border border-ink/25 transition-transform hover:scale-110 ${l?.color === i
+                  ? "ring-2 ring-ink ring-offset-2 ring-offset-surface" : ""}`}
                 style={{ background: c ? `rgb(${c.join(",")})` : "conic-gradient(#f55,#fd5,#5d5,#5df,#55f,#f5f,#f55)" }} />
             ))}
           </div>

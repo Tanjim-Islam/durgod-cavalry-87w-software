@@ -63,6 +63,17 @@ test("flyout has quick controls and app actions", async () => {
   expect(screen.getByRole("switch", { name: "Start with Windows" })).toBeInTheDocument();
 });
 
+test("flyout footer keeps the toggle and the actions on separate non-wrapping rows", async () => {
+  await useApp.getState().refresh();
+  render(<Flyout />);
+  const toggle = screen.getByRole("switch", { name: "Start with Windows" }).closest("label")!;
+  expect(toggle.className).toContain("whitespace-nowrap");
+  const open = screen.getByRole("button", { name: "Open app" });
+  expect(open.className).toContain("whitespace-nowrap");
+  expect(toggle.parentElement).toBe(open.parentElement!.parentElement);
+  expect(toggle.parentElement).not.toBe(open.parentElement);
+});
+
 test("a changed shortcut shows the current action and the factory label", async () => {
   const api = installApi();
   const row: ShortcutRow = { keys: "Fn + F1", group: "Media", label: "Mute", slot: 1, current: "Play/Pause",

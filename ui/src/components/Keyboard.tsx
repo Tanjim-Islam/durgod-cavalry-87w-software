@@ -17,7 +17,7 @@ export function Keyboard({ lighting, palette, keyColors, selected, onKeyClick, u
   const pulse = !!lighting && isAnimated(lighting.effect) && lighting.brightness !== 0 && !reduce;
   const gap = 3;
   return (
-    <div className="relative mx-auto rounded-2xl border border-line bg-[#141414] p-3"
+    <div className="relative mx-auto shrink-0 rounded-2xl border border-line bg-[#141414] p-3"
          style={{ width: KB_WIDTH * unit + 24, height: KB_HEIGHT * unit + 24 }}
          {...(onKeyClick ? {} : { role: "img", "aria-label": "Keyboard lighting preview" })}>
       {KEYS.map((k) => {

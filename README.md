@@ -66,8 +66,10 @@ Grab the latest build from [Releases](https://github.com/Tanjim-Islam/durgod-cav
 
 | File | What it is |
 |---|---|
-| `Cavalry87-vX.Y.Z-portable.exe` | One file, just run it |
-| `Cavalry87-vX.Y.Z-win64.zip` | The same app as a folder. Starts faster; unzip anywhere and run `Cavalry87.exe` |
+| `Cavalry87-Setup-vX.Y.Z.exe` | The installer. Adds a Start menu shortcut, can start with Windows, updates in place, and uninstalls cleanly. No admin rights needed |
+| `Cavalry87-vX.Y.Z-portable.exe` | One file, nothing to install, just run it |
+
+Uninstalling keeps your profiles and backups in `%APPDATA%\Cavalry87`.
 
 If you used Durgod's own software before, uninstall it first. Two apps talking to the keyboard at once will fight over it.
 
@@ -125,7 +127,7 @@ pnpm -C ui test
 
 The test suites never touch the keyboard. `pytest -m hardware -s` runs a read-only check against the real keyboard over the cable.
 
-Build the release files into `dist/`:
+Build the installer and the portable exe into `dist/` (the installer needs [Inno Setup 6](https://jrsoftware.org/isinfo.php)):
 
 ```bash
 .venv/Scripts/python scripts/build.py

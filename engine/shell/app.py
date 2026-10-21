@@ -11,6 +11,7 @@ import webview
 import win32api
 import win32con
 import win32gui
+import win32process
 
 from ..api import Api
 from ..device import DeviceManager, Worker
@@ -211,6 +212,9 @@ class Windows:
         self.flyout.resize(*FLYOUT_SIZE)
         self.flyout.move(*flyout_origin(cursor, work, _window_scale(self.flyout), FLYOUT_SIZE))
         self.flyout.show()
+        hwnd = _hwnd(self.flyout)
+        if hwnd:
+            _force_foreground(hwnd)
 
     def hide_flyout(self) -> None:
         self.flyout.hide()
@@ -250,6 +254,24 @@ class Windows:
     def open_dialog(self) -> str | None:
         r = self.main.create_file_dialog(webview.FileDialog.OPEN, file_types=("Cavalry profile (*.json)",))
         return r if isinstance(r, str) else (r[0] if r else None)
+
+
+def _force_foreground(hwnd: int) -> None:
+    """Windows only lets the foreground app activate windows. A tray click leaves the taskbar in front, so the
+    flyout would open unfocused and the taskbar would take focus right back; borrow its input state to take over."""
+    user32 = ctypes.windll.user32
+    me = win32api.GetCurrentThreadId()
+    fg = win32gui.GetForegroundWindow()
+    other = win32process.GetWindowThreadProcessId(fg)[0] if fg else 0
+    attached = bool(other and other != me and user32.AttachThreadInput(me, other, True))
+    try:
+        win32gui.BringWindowToTop(hwnd)
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception:
+        log.warning("could not bring the flyout to the front")
+    finally:
+        if attached:
+            user32.AttachThreadInput(me, other, False)
 
 
 def _quietly(fn) -> None:

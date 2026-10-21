@@ -9,6 +9,8 @@ import { LevelSlider } from "@/components/LevelSlider";
 import { windowAction } from "@/bridge/api";
 import { useApp } from "@/state/app";
 
+const BLUR_GRACE_MS = 300;
+
 export function Flyout() {
   const { state, act, profiles, backups, settings, refresh, loadProfiles, loadBackups, loadSettings, setAppSettings } = useApp();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -24,11 +26,16 @@ export function Flyout() {
   }, [refresh, loadProfiles, loadBackups, loadSettings]);
   useEffect(() => {
     const hide = () => void windowAction("hide_flyout");
+    // Opening from the tray can bounce focus to the taskbar for a moment; only a real click elsewhere closes it.
+    let focusedAt = 0;
+    const onFocus = () => { focusedAt = performance.now(); };
+    const onBlur = () => { if (performance.now() - focusedAt > BLUR_GRACE_MS) hide(); };
     // While the confirm dialog is open, Esc only closes the dialog.
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape" && !confirmOpen) hide(); };
-    addEventListener("blur", hide);
+    addEventListener("focus", onFocus);
+    addEventListener("blur", onBlur);
     addEventListener("keydown", esc);
-    return () => { removeEventListener("blur", hide); removeEventListener("keydown", esc); };
+    return () => { removeEventListener("focus", onFocus); removeEventListener("blur", onBlur); removeEventListener("keydown", esc); };
   }, [confirmOpen]);
   const l = state?.lighting;
   const off = !state?.connected;

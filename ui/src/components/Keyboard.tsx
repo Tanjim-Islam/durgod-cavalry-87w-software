@@ -50,7 +50,7 @@ export function Keyboard({ lighting, palette, keyColors, selected, marks, markLa
           transition: pulse ? { duration: 2.4, repeat: Infinity, delay: (k.x + k.y) * 0.06 } : { duration: 0.2 },
         };
         const text = k.w >= 1 && k.label.length <= 6 ? k.label : "";
-        const dot = marks?.has(k.slot) ? <span aria-hidden="true" className="absolute right-1 top-1 size-1.5 rounded-full bg-accent" /> : null;
+        const dot = marks?.has(k.slot) ? <span aria-hidden="true" className="absolute bottom-1 right-1 size-1.5 rounded-full bg-accent" /> : null;
         return onKeyClick ? (
           <motion.button key={k.slot} type="button" aria-pressed={selected === k.slot}
             onClick={() => onKeyClick(k.slot)} whileHover={{ y: -1 }} whileTap={{ y: 1 }}

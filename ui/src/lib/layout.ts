@@ -5,6 +5,8 @@ const NAMES: Record<number, { label?: string; name: string }> = {
   79: { label: "Bksp", name: "Backspace" },
   4: { name: "Left Shift" }, 5: { name: "Left Ctrl" }, 17: { name: "Left Alt" },
   82: { name: "Right Shift" }, 53: { name: "Right Alt" }, 83: { name: "Right Ctrl" },
+  94: { label: "↑", name: "Up" }, 95: { label: "↓", name: "Down" },
+  89: { label: "←", name: "Left" }, 101: { label: "→", name: "Right" },
 };
 
 type Row = (string | number)[];

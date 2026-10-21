@@ -32,7 +32,8 @@ test("every key maps to its engine slot", () => {
 test("known slots by caption", () => {
   const by = Object.fromEntries(KEYS.map((k) => [k.label, k.slot]));
   expect(by.Esc).toBe(0); expect(by.J).toBe(45); expect(by.Fn).toBe(59);
-  expect(by["\\"]).toBe(80); expect(by.Enter).toBe(81); expect(by.Right).toBe(101);
+  expect(by["\\"]).toBe(80); expect(by.Enter).toBe(81); expect(by["→"]).toBe(101);
+  expect(KEYS.find((k) => k.slot === 94)!.name).toBe("Up");
 });
 
 test("right-side modifiers keep a short caption but a distinct name", () => {

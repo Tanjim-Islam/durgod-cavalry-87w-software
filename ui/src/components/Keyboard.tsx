@@ -13,6 +13,7 @@ interface Props {
 
 // Caps are dark in both themes, so captions use a fixed light color rather than the theme ink.
 const CAPTION = "rgba(255, 255, 255, 0.72)";
+const arrow = (label: string) => label.length === 1 && "←↑→↓".includes(label);
 
 export function Keyboard({ lighting, palette, keyColors, selected, marks, markLabel = "remapped", onKeyClick, unit = 30, onKeyPaint }: Props) {
   const reduce = useReducedMotion();
@@ -36,7 +37,10 @@ export function Keyboard({ lighting, palette, keyColors, selected, marks, markLa
       {KEYS.map((k) => {
         const props = {
           "aria-label": k.name, "data-slot": k.slot,
-          className: "absolute rounded-[6px] border text-[10px] leading-none font-medium transition-colors " +
+          // Legends sit top-center like the real caps; long names on 1u keys get a smaller, tighter font.
+          className: "absolute flex justify-center overflow-hidden whitespace-nowrap rounded-[6px] border px-0.5 pt-[5px] " +
+            "leading-none font-medium transition-colors " + (k.w < 1.25 && k.label.length >= 4
+              ? "text-[7.5px] tracking-[-0.02em] " : arrow(k.label) ? "text-[11px] " : "text-[10px] ") +
             (selected === k.slot ? "border-accent ring-2 ring-accent/60" : "border-white/5"),
           style: { left: 12 + k.x * unit, top: 12 + k.y * unit, width: k.w * unit - gap, height: unit - gap,
                    color: CAPTION, background: "color-mix(in oklab, var(--glow) 22%, #232323)",

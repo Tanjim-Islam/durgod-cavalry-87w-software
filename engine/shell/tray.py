@@ -9,7 +9,7 @@ import win32api
 import win32con
 import win32gui
 
-from .single import SHOW_MAIN_MESSAGE, TRAY_WINDOW
+from .single import QUIT_MESSAGE, SHOW_MAIN_MESSAGE, TRAY_WINDOW
 
 log = logging.getLogger("cavalry")
 
@@ -42,14 +42,16 @@ def session_action(msg: int, wparam: int) -> str | None:
 
 
 class Tray:
-    def __init__(self, icon_path: str, tooltip: str, on_main, on_flyout, on_session=lambda action: None):
+    def __init__(self, icon_path: str, tooltip: str, on_main, on_flyout, on_session=lambda action: None,
+                 on_quit=lambda: None):
         self.icon_path, self.tooltip = icon_path, tooltip
-        self.on_main, self.on_flyout, self.on_session = on_main, on_flyout, on_session
+        self.on_main, self.on_flyout, self.on_session, self.on_quit = on_main, on_flyout, on_session, on_quit
         self._hwnd = None
         self._added = False
         self._attempts = 0
         self._taskbar_created = 0
         self._show_main = 0
+        self._quit = 0
         self._thread = threading.Thread(target=self._run, name="cavalry-tray", daemon=True)
 
     def start(self) -> None:
@@ -84,6 +86,9 @@ class Tray:
             return 0
         if msg == self._show_main and msg:   # a second launch asked us to come forward
             self._call(self.on_main)
+            return 0
+        if msg == self._quit and msg:        # the installer is about to replace or remove us
+            self._call(self.on_quit)
             return 0
         if msg == self._taskbar_created:
             self._added = False
@@ -131,6 +136,7 @@ class Tray:
         try:
             self._taskbar_created = win32gui.RegisterWindowMessage("TaskbarCreated")
             self._show_main = win32gui.RegisterWindowMessage(SHOW_MAIN_MESSAGE)
+            self._quit = win32gui.RegisterWindowMessage(QUIT_MESSAGE)
             wc = win32gui.WNDCLASS()
             wc.lpszClassName = f"Cavalry87Tray{id(self)}"
             wc.lpfnWndProc = self._proc

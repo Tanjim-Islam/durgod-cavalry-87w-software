@@ -310,7 +310,8 @@ def main(argv: list[str]) -> int:
         fns = exposed_functions(bridge)
         for w in (windows.main, windows.flyout):
             w.expose(*fns)
-        tray = Tray(str(ICON), TITLE, windows.show_main, windows.show_flyout, on_session=windows.session)
+        tray = Tray(str(ICON), TITLE, windows.show_main, windows.show_flyout, on_session=windows.session,
+                    on_quit=windows.quit)
     except FileNotFoundError as e:
         log.exception("could not start %s", TITLE)
         fatal(TITLE, f"Cavalry 87W is missing some of its files and can't start.\n\n{e}\n\n"

@@ -1,9 +1,10 @@
-"""Builds the Windows app into dist/: a portable single exe and a zipped folder build.
+"""Builds the Windows app into dist/: a portable single exe and a Setup installer.
 
-Run: .venv/Scripts/python scripts/build.py
+Run: .venv/Scripts/python scripts/build.py   (the installer needs Inno Setup 6)
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -16,7 +17,7 @@ ICON = ROOT / "engine" / "shell" / "icon.ico"
 VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
 
 VERSION_INFO = """VSVersionInfo(
-  ffi=FixedFileInfo(filevers=({v}, 0), prodvers=({v}, 0)),
+  ffi=FixedFileInfo(filevers=({v}), prodvers=({v})),
   kids=[StringFileInfo([StringTable('040904B0', [
     StringStruct('FileDescription', 'Cavalry 87W'),
     StringStruct('ProductName', 'Cavalry 87W'),
@@ -25,6 +26,18 @@ VERSION_INFO = """VSVersionInfo(
     StringStruct('OriginalFilename', '{n}.exe')])]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])])])
 """
+
+
+def iscc() -> Path:
+    """Inno Setup's compiler: INNO_ISCC, or the usual per-user and machine-wide install folders."""
+    candidates = [os.environ.get("INNO_ISCC", ""),
+                  Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Inno Setup 6" / "ISCC.exe",
+                  Path(os.environ.get("ProgramFiles(x86)", "")) / "Inno Setup 6" / "ISCC.exe",
+                  Path(os.environ.get("ProgramFiles", "")) / "Inno Setup 6" / "ISCC.exe"]
+    for c in candidates:
+        if c and Path(c).is_file():
+            return Path(c)
+    raise SystemExit("Inno Setup 6 not found: install it (winget install JRSoftware.InnoSetup) or set INNO_ISCC")
 
 
 def run(*cmd: str) -> None:
@@ -56,8 +69,9 @@ def main() -> None:
     shutil.copy2(work / "out" / "one" / f"{NAME}.exe", portable)
 
     pyinstaller(False, work, version_file)
-    archive = shutil.make_archive(str(dist / f"{NAME}-v{VERSION}-win64"), "zip", work / "out" / "dir")
-    print("built", portable, archive, sep="\n  ")
+    run(str(iscc()), "/Q", f"/DAppVersion={VERSION}", f"/DSourceDir={work / 'out' / 'dir' / NAME}",
+        f"/DOutputDir={dist}", f"/DIconFile={ICON}", str(ROOT / "scripts" / "installer.iss"))
+    print("built", portable, dist / f"{NAME}-Setup-v{VERSION}.exe", sep="\n  ")
 
 
 if __name__ == "__main__":

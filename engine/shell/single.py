@@ -12,6 +12,7 @@ import winerror
 
 log = logging.getLogger("cavalry")
 SHOW_MAIN_MESSAGE = "Cavalry87.ShowMain"
+QUIT_MESSAGE = "Cavalry87.Quit"   # sent by the installer and uninstaller
 TRAY_WINDOW = "Cavalry87Tray"
 
 _handle = None

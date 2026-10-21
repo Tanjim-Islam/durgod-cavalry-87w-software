@@ -30,3 +30,12 @@ def test_a_failing_session_callback_still_lets_the_session_end():
     def boom(action): raise RuntimeError("x")
     t = Tray("x.ico", "tip", lambda: None, lambda p: None, on_session=boom)
     assert t._proc(0, win32con.WM_QUERYENDSESSION, 0, 0) == 1
+
+
+def test_registered_messages_open_the_app_or_quit_it():
+    calls = []
+    t = Tray("icon.ico", "tip", on_main=lambda: calls.append("main"), on_flyout=lambda c: None,
+             on_quit=lambda: calls.append("quit"))
+    t._show_main, t._quit = 0xC001, 0xC002
+    assert t._proc(1, 0xC001, 0, 0) == 0 and t._proc(1, 0xC002, 0, 0) == 0
+    assert calls == ["main", "quit"]

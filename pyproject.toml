@@ -4,13 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cavalry87"
-version = "1.0.1"
+dynamic = ["version"]
 description = "Control software for the Durgod Cavalry 87W keyboard"
 requires-python = ">=3.12"
 dependencies = ["hidapi>=0.14", "pydantic>=2.7", "pywebview>=6.2", "pywin32>=312"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pyinstaller>=6.11"]
+
+[tool.setuptools.dynamic]
+version = { attr = "engine.version.VERSION" }
 
 [tool.setuptools.packages.find]
 include = ["engine*"]

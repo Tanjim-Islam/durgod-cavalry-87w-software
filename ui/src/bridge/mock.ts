@@ -58,6 +58,10 @@ export function createMock(emit: (e: DeviceEvent) => void) {
     palette: Array.from({ length: 23 }, () => DEFAULT_GROUP.map((c) => [...c] as RGB)),
   };
   applyScenario(s, typeof location === "undefined" ? null : new URLSearchParams(location.search).get("scenario"));
+  const updateScenario = typeof location === "undefined" ? null : new URLSearchParams(location.search).get("update");
+  let update = { status: updateScenario === "available" ? "available" : "current", current: "1.0.2",
+    latest: updateScenario === "available" ? "1.1.0" : "1.0.2", url: "https://github.com/Tanjim-Islam/durgod-cavalry-87w-software/releases",
+    progress: 0, error: null as string | null, installable: true };
   let profiles: string[] = ["Default"];
   const backups: BackupInfo[] = [
     { name: "factory", created: "2026-10-19T23:05:41", factory: true, label: "first connection" },
@@ -69,6 +73,23 @@ export function createMock(emit: (e: DeviceEvent) => void) {
 
   return {
     async subscribe() {},
+    async get_update() { await wait(); return { ...update }; },
+    async check_update() {
+      update = { ...update, status: "checking", error: null };
+      setTimeout(() => { update = { ...update, status: updateScenario === "available" ? "available" : "current" };
+        emit({ name: "update", payload: { ...update } }); }, 900);
+      return { ...update };
+    },
+    async install_update() {
+      if (update.status !== "available") return { ...update };
+      update = { ...update, status: "downloading", progress: 0 };
+      const tick = setInterval(() => {
+        update = update.progress >= 1 ? { ...update, status: "installing" } : { ...update, progress: Math.min(1, update.progress + 0.2) };
+        emit({ name: "update", payload: { ...update } });
+        if (update.status === "installing") clearInterval(tick);
+      }, 400);
+      return { ...update };
+    },
     async retry_connect() {
       await wait();
       Object.assign(s, { connected: true, link: s.link ?? "radio", asleep: false, problem: null });

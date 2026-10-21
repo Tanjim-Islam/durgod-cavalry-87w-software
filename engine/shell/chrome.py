@@ -7,6 +7,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes as wt
 import logging
+import threading
 import time
 
 log = logging.getLogger("cavalry")
@@ -139,3 +140,32 @@ def enable_app_regions() -> None:
 
     on_webview_ready._cavalry = True
     edgechromium.EdgeChrome.on_webview_ready = on_webview_ready
+
+
+WM_ACTIVATE, WA_INACTIVE = 0x0006, 0
+
+
+class DeactivateWatcher:
+    """Calls on_deactivate (on its own thread) when the window stops being the active window. Native, so it
+    works whether or not the page inside ever got keyboard focus."""
+
+    def __init__(self, hwnd: int, on_deactivate):
+        self.hwnd, self.on_deactivate = hwnd, on_deactivate
+        self._proc = WNDPROC(self._wndproc)
+        self._old = None
+
+    def install(self) -> None:
+        old = _u32.SetWindowLongPtrW(self.hwnd, GWLP_WNDPROC, ctypes.cast(self._proc, ctypes.c_void_p))
+        if not old:
+            raise OSError(f"SetWindowLongPtrW failed: {ctypes.get_last_error()}")
+        self._old = old
+
+    def uninstall(self) -> None:
+        if self._old:
+            _u32.SetWindowLongPtrW(self.hwnd, GWLP_WNDPROC, self._old)
+            self._old = None
+
+    def _wndproc(self, hwnd, msg, wparam, lparam):
+        if msg == WM_ACTIVATE and (wparam & 0xFFFF) == WA_INACTIVE:
+            threading.Thread(target=self.on_deactivate, name="cavalry-flyout-hide", daemon=True).start()
+        return _u32.CallWindowProcW(self._old, hwnd, msg, wparam, lparam)

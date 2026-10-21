@@ -5,6 +5,7 @@ import ctypes
 import logging
 import os
 import sys
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -21,19 +22,26 @@ from ..store import Store, default_root
 from . import single
 from .autostart import Autostart
 from .bridge import API_METHODS, Bridge, Courier
-from .chrome import CaptionRemover, enable_app_regions
+from .chrome import CaptionRemover, DeactivateWatcher, enable_app_regions
 from .preflight import WEBVIEW2_DOWNLOAD, fatal, webview2_version
-from .flyout import place
+from .animate import Fader
+from .flyout import SLIDE, place
 from .tray import Tray
+from .updater import Updater
+from ..version import VERSION
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
 DIST = ROOT / "ui" / "dist" / "index.html"
 ICON = Path(__file__).with_name("icon.ico")
 TITLE = "Cavalry 87W"
 FLYOUT_SIZE = (320, 470)
+OPEN_S, CLOSE_S = 0.18, 0.12
+DEACTIVATE_GRACE_S = 0.3
+TOGGLE_S = 0.35   # a tray click right after the flyout closed (by losing focus to that click) means "close"
 SM_SHUTTINGDOWN = 0x2000
 EXPOSED = API_METHODS + ("set_app_settings", "export_profile_dialog", "import_profile_dialog",
                          "show_main", "hide_main", "hide_flyout", "minimize", "toggle_maximize", "open_logs", "quit",
+                         "get_update", "check_update", "install_update",
                          "record_macro_start", "record_macro_stop")
 log = logging.getLogger("cavalry")
 
@@ -74,12 +82,6 @@ def fix_fragment(url: str) -> str:
     """pywebview builds served URLs with os.path.relpath, which turns '#/flyout' into '#\\flyout'."""
     base, sep, frag = url.partition("#")
     return base + sep + frag.replace("\\", "/")
-
-
-def flyout_origin(cursor, work, scale: float, size) -> tuple[int, int]:
-    """Place in physical pixels, then return the logical point pywebview's move() scales back up."""
-    x, y = place(cursor, work, (round(size[0] * scale), round(size[1] * scale)))
-    return round(x / scale), round(y / scale)
 
 
 _user32 = ctypes.windll.user32
@@ -152,6 +154,9 @@ class Windows:
         self._on_quit, self._on_session_end, self._on_hide = on_quit, on_session_end, on_hide
         self._on_window = on_window
         self._caption: CaptionRemover | None = None
+        self._fader: Fader | None | bool = None
+        self._watcher: DeactivateWatcher | None = None
+        self._flyout_hidden_at = self._flyout_shown_at = 0.0
         self._courier = Courier()
         self.main.events.closing += self._on_close
         self.main.events.before_show += self._custom_caption
@@ -201,7 +206,7 @@ class Windows:
         return False
 
     def show_main(self) -> None:
-        self.flyout.hide()
+        self.hide_flyout(animate=False)
         self.main.show()
         hwnd = _hwnd(self.main)
         if hwnd and win32gui.IsIconic(hwnd):
@@ -212,19 +217,62 @@ class Windows:
     def open_logs(self) -> None:
         os.startfile(default_root() / "logs")
 
-    def show_flyout(self, cursor) -> None:
-        mon = win32api.MonitorFromPoint(cursor, win32con.MONITOR_DEFAULTTONEAREST)
-        work = win32api.GetMonitorInfo(mon)["Work"]
+    def show_flyout(self, anchor) -> None:
+        """Open next to the tray icon (anchor: its screen rect), fading in as it slides out of the taskbar.
+        A click on the icon while the flyout is open closes it instead."""
+        hwnd = _hwnd(self.flyout)
+        if time.monotonic() - self._flyout_hidden_at < TOGGLE_S or (hwnd and win32gui.IsWindowVisible(hwnd)):
+            self.hide_flyout()
+            return
+        center = ((anchor[0] + anchor[2]) // 2, (anchor[1] + anchor[3]) // 2)
+        work = win32api.GetMonitorInfo(win32api.MonitorFromPoint(center, win32con.MONITOR_DEFAULTTONEAREST))["Work"]
         # The frameless form loses its border after sizing, so set the outer size again before placing.
         self.flyout.resize(*FLYOUT_SIZE)
-        self.flyout.move(*flyout_origin(cursor, work, _window_scale(self.flyout), FLYOUT_SIZE))
+        scale = _window_scale(self.flyout)
+        x, y, dx, dy = place(anchor, work, (round(FLYOUT_SIZE[0] * scale), round(FLYOUT_SIZE[1] * scale)),
+                             round(SLIDE * scale))
+        fader = self._flyout_fader(hwnd)
+        self._flyout_shown_at = time.monotonic()
+        if fader:
+            fader.jump((x + dx, y + dy), 0)
+        else:
+            self.flyout.move(round(x / scale), round(y / scale))
         self.flyout.show()
-        hwnd = _hwnd(self.flyout)
         if hwnd:
             _force_foreground(hwnd)
+        if fader:
+            fader.run((x + dx, y + dy), (x, y), 0, 255, OPEN_S)
 
-    def hide_flyout(self) -> None:
+    def hide_flyout(self, animate: bool = True) -> None:
+        hwnd = _hwnd(self.flyout)
+        if not hwnd or not win32gui.IsWindowVisible(hwnd):
+            return
+        self._flyout_hidden_at = time.monotonic()
+        fader = self._flyout_fader(hwnd) if animate else None
+        if fader:
+            l, t, _, _ = win32gui.GetWindowRect(hwnd)
+            if not fader.run((l, t), (l, t + round(6 * _window_scale(self.flyout))), 255, 0, CLOSE_S):
+                return                       # reopened while closing: leave it open
         self.flyout.hide()
+
+    def _flyout_fader(self, hwnd: int | None) -> Fader | None:
+        if hwnd and self._fader is None:
+            try:
+                self._fader = Fader(hwnd)
+            except Exception:
+                log.exception("flyout animation unavailable")
+                self._fader = False
+            try:
+                self._watcher = DeactivateWatcher(hwnd, self._flyout_deactivated)
+                self._watcher.install()
+            except Exception:
+                log.exception("flyout focus watcher unavailable")
+        return self._fader or None
+
+    def _flyout_deactivated(self) -> None:
+        # Opening from the tray can bounce activation to the taskbar for a moment; only a real click elsewhere closes it.
+        if time.monotonic() - self._flyout_shown_at > DEACTIVATE_GRACE_S:
+            self.hide_flyout()
 
     def minimize(self) -> None:
         self.main.minimize()
@@ -234,6 +282,8 @@ class Windows:
         _quietly(self._on_quit)
         if self._caption:
             _quietly(self._caption.uninstall)
+        if self._watcher:
+            _quietly(self._watcher.uninstall)
         for w in (self.flyout, self.main):
             _quietly(w.destroy)
 
@@ -306,7 +356,8 @@ def main(argv: list[str]) -> int:
         windows = Windows(ui_url(dev), start_hidden=tray_only, on_quit=worker.close, on_session_end=worker.stop,
                           on_hide=lambda: bridge.pause_recording(),
                           on_window=lambda maximized: bridge.push("window", {"maximized": maximized}))
-        bridge = Bridge(api, windows, Autostart(launch_command()))
+        updater = Updater(VERSION, push=lambda name, payload: bridge.push(name, payload))
+        bridge = Bridge(api, windows, Autostart(launch_command()), updater)
         fns = exposed_functions(bridge)
         for w in (windows.main, windows.flyout):
             w.expose(*fns)
@@ -325,6 +376,8 @@ def main(argv: list[str]) -> int:
         bridge.start()
         worker.start()
         tray.start()
+        if not dev:
+            updater.check()                  # once per launch; Settings has a button for more
         webview.start(debug=dev, http_server=not dev, private_mode=True, gui="edgechromium",
                       storage_path=str(root / "webview"), icon=str(ICON))
     except Exception as e:

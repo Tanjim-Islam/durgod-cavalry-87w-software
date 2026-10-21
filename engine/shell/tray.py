@@ -82,7 +82,7 @@ class Tray:
             if action == "main":
                 self._call(self.on_main)
             elif action == "flyout":
-                self._call(self.on_flyout, win32api.GetCursorPos())
+                self._call(self.on_flyout, self._icon_rect())
             return 0
         if msg == self._show_main and msg:   # a second launch asked us to come forward
             self._call(self.on_main)
@@ -111,6 +111,21 @@ class Tray:
             win32gui.PostQuitMessage(0)
             return 0
         return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
+
+    def _icon_rect(self) -> tuple[int, int, int, int]:
+        """Where the icon is on screen (taskbar or hidden icons popup); the cursor if Windows won't say."""
+        class NotifyIconId(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_uint32), ("hWnd", ctypes.c_void_p), ("uID", ctypes.c_uint),
+                        ("guidItem", ctypes.c_byte * 16)]
+        nid = NotifyIconId(ctypes.sizeof(NotifyIconId), self._hwnd, 1)
+        r = (ctypes.c_long * 4)()
+        try:
+            if ctypes.windll.shell32.Shell_NotifyIconGetRect(ctypes.byref(nid), r) == 0 and r[2] > r[0]:
+                return tuple(r)
+        except OSError:
+            pass
+        x, y = win32api.GetCursorPos()
+        return x, y, x, y
 
     def _add_icon(self) -> None:
         size = win32api.GetSystemMetrics(win32con.SM_CXSMICON)

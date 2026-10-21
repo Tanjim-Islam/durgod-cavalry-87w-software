@@ -5,6 +5,7 @@ import { LevelSlider } from "@/components/LevelSlider";
 import { Segmented } from "@/components/Segmented";
 import { PageShell } from "@/components/PageShell";
 import { StateKeyboard } from "@/components/StateKeyboard";
+import { UpdateSettings } from "@/components/UpdateBox";
 import { useApp } from "@/state/app";
 
 function sleepLabel(units: number) {
@@ -52,6 +53,7 @@ export function Settings() {
             <Switch aria-label="Start with Windows" checked={settings.autostart} onCheckedChange={(v) => void setAppSettings({ autostart: v })} />
           </label>
         </Card>
+        <Card title="Updates"><UpdateSettings /></Card>
         <Card title="About">
           <p className="text-[13px] text-muted">Durgod Cavalry 87W · model 0x7B · {state?.link === "wired" ? "Cable" : state?.link === "radio" ? "2.4G" : "Not connected"}</p>
         </Card>

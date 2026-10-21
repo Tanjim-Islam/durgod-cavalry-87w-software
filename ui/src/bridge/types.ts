@@ -25,7 +25,7 @@ export interface KbState {
   macros?: Macro[] | null; key_colors?: RGB[] | null; palette?: RGB[][] | null;
   lighting_error?: string; settings_error?: string; layers_error?: string; macros_error?: string;
   key_colors_error?: string; palette_error?: string; warning?: string;
-  problem?: Problem | null; notices?: Notice[]; pending?: boolean;
+  problem?: Problem | null; notices?: Notice[]; pending?: boolean; searching?: boolean;
 }
 export interface Problem { code: "wrong_model" | "connect_failed" | "lost"; message: string }
 export interface Notice { code: string; message: string }
@@ -35,4 +35,4 @@ export interface ShortcutRow {
 }
 export interface BackupInfo { name: string; created: string; factory: boolean; label: string }
 export interface AppSettings { theme: "dark" | "light" | "system"; autostart: boolean }
-export interface DeviceEvent { name: "state" | "link" | "mirror_mismatch" | "error" | "recording_stopped" | "window"; payload: Record<string, unknown> }
+export interface DeviceEvent { name: "state" | "link" | "mirror_mismatch" | "error" | "recording_stopped" | "window" | "update"; payload: Record<string, unknown> }

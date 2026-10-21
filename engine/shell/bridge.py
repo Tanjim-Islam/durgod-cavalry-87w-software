@@ -116,8 +116,8 @@ def _drop_close_keys(events: list) -> None:
 class Bridge:
     """Everything public here is callable from the page; keep internals underscored."""
 
-    def __init__(self, api: Api, host: WindowHost, autostart):
-        self._api, self._host, self._autostart = api, host, autostart
+    def __init__(self, api: Api, host: WindowHost, autostart, updater=None):
+        self._api, self._host, self._autostart, self._updater = api, host, autostart, updater
         self._events: queue.Queue = queue.Queue()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
@@ -166,6 +166,19 @@ class Bridge:
                 self._host.eval_all(js)
             except Exception:
                 log.exception("could not deliver an event to the UI")
+
+    def get_update(self):
+        return self._updater.snapshot() if self._updater else None
+
+    def check_update(self):
+        if not self._updater:
+            raise Exception("Updates aren't available in this build")
+        return self._updater.check()
+
+    def install_update(self):
+        if not self._updater:
+            raise Exception("Updates aren't available in this build")
+        return self._updater.install()
 
     def set_app_settings(self, theme=None, autostart=None):
         previous = None

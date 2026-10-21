@@ -5,8 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from engine.shell import app
-from engine.shell.app import (EXPOSED, ShortApiErrors, build_engine, exposed_functions, fix_fragment,
-                              flyout_origin, ui_url)
+from engine.shell.app import EXPOSED, ShortApiErrors, build_engine, exposed_functions, fix_fragment, ui_url
 from engine.shell.bridge import API_METHODS, Bridge
 
 
@@ -52,7 +51,7 @@ def test_exposed_names_are_exactly_the_js_surface():
     assert len(names) == len(set(names))
     assert set(names) == set(API_METHODS) | {"set_app_settings", "export_profile_dialog",
                                              "import_profile_dialog", "show_main", "hide_main", "hide_flyout",
-                                             "minimize", "toggle_maximize", "open_logs", "quit", "record_macro_start",
+                                             "minimize", "toggle_maximize", "open_logs", "quit", "get_update", "check_update", "install_update", "record_macro_start",
                                              "record_macro_stop"}
     assert set(names) == set(EXPOSED)
     assert all(inspect.isfunction(f) and not hasattr(f, "__self__") for f in fns)
@@ -73,14 +72,6 @@ def test_fix_fragment_restores_forward_slashes():
     assert fix_fragment("http://127.0.0.1:42001/index.html#\\flyout") == "http://127.0.0.1:42001/index.html#/flyout"
     assert fix_fragment("http://localhost:5173#/flyout") == "http://localhost:5173#/flyout"
     assert fix_fragment("http://127.0.0.1:42001/index.html") == "http://127.0.0.1:42001/index.html"
-
-
-def test_flyout_origin_converts_physical_to_logical():
-    # 150% system DPI: 320x470 logical -> 480x705 physical, placed above a bottom taskbar
-    x, y = flyout_origin(cursor=(1500, 1590), work=(0, 0, 2560, 1560), scale=1.5, size=(320, 470))
-    assert (x, y) == (round((1500 - 240) / 1.5), round((1560 - 12 - 705) / 1.5))
-    # 100%: identity
-    assert flyout_origin((1500, 1050), (0, 0, 1920, 1032), 1.0, (320, 470)) == (1340, 1032 - 12 - 470)
 
 
 class _Event(list):
@@ -171,9 +162,17 @@ def test_show_flyout_resizes_then_moves_then_shows(wins, monkeypatch):
     monkeypatch.setattr(app.win32api, "MonitorFromPoint", lambda p, f: 1)
     monkeypatch.setattr(app.win32api, "GetMonitorInfo", lambda m: {"Work": (0, 0, 1920, 1032)})
     monkeypatch.setattr(app, "_window_scale", lambda w: 1.0)
-    wins.show_flyout((1500, 1050))
+    wins.show_flyout((1500, 1040, 1532, 1080))           # the tray icon's rect
     assert [c for c in wins.flyout.calls if c[0] in ("resize", "move", "show")] == [
-        ("resize", (320, 470)), ("move", (1340, 550)), ("show", ())]
+        ("resize", (320, 470)), ("move", (1516 - 160, 1032 - 10 - 470)), ("show", ())]
+
+
+def test_tray_click_right_after_the_flyout_closed_does_not_reopen_it(wins, monkeypatch):
+    monkeypatch.setattr(app.win32api, "MonitorFromPoint", lambda p, f: 1)
+    monkeypatch.setattr(app.win32api, "GetMonitorInfo", lambda m: {"Work": (0, 0, 1920, 1032)})
+    wins._flyout_hidden_at = app.time.monotonic()     # it just lost focus to that very click
+    wins.show_flyout((1500, 1040, 1532, 1080))
+    assert not [c for c in wins.flyout.calls if c[0] == "show"]
 
 
 def _record(msg, name="pywebview", level=logging.ERROR):

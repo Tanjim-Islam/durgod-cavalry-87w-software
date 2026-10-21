@@ -10,6 +10,7 @@ export function deviceStatus(s: KbState | null): DeviceStatus {
   if (!s) return { kind: "starting" };
   if (s.connected) return { kind: s.partial ? "partial" : "ready" };
   if (s.problem) return { kind: s.problem.code, detail: s.problem.message };
+  if (s.searching) return { kind: "starting" };
   if (!s.link) return { kind: "none" };
   if (s.asleep) return { kind: "asleep" };
   return { kind: "connecting" };

@@ -128,11 +128,11 @@ def test_wrong_model_refused(env):
     kb.identity = bytes.fromhex("030000000099")
     connect(dm, clock)
     assert dm.link is None and dm.problem["code"] == "wrong_model" and "0x99" in dm.problem["message"]
-    n = len(kb.sent)
+    n, states = len(kb.sent), ev.count("state")
     for _ in range(3):                            # held: no reconnect attempts, no repeated announcements
         clock.t += 5.1
         dm.poll()
-    assert len(kb.sent) == n and ev.count("state") == 1
+    assert len(kb.sent) == n and ev.count("state") == states
     kb.identity = bytes.fromhex("03000000007b")
     dm.retry()
     dm.poll()                                     # Retry tries again right away
@@ -777,3 +777,42 @@ def test_worker_drain_timeout_covers_an_api_call_and_is_logged(caplog):
         w.stop(timeout=0.2)
     gate.set()
     assert any("still writing" in r.getMessage() for r in caplog.records)
+
+
+def test_startup_searches_briefly_and_connects_without_the_long_wait(env):
+    kb, st, clock, state, dm, ev = env
+    state["kind"] = None
+    dm.poll()
+    assert dm.starting                            # nothing found yet, but still searching
+    state["kind"] = "wired"
+    dm.poll()
+    clock.t += 1.1
+    dm.poll()                                     # already plugged in at launch: 1 s settle, not 5
+    assert dm.link is not None and not dm.starting
+
+
+def test_startup_search_ends_with_a_state_event(env):
+    kb, st, clock, state, dm, ev = env
+    state["kind"] = None
+    dm.poll()
+    ev.clear()
+    clock.t += 4.1
+    dm.poll()
+    assert not dm.starting and ev == ["state"]
+
+
+def test_a_failed_first_attempt_at_launch_retries_quietly(env):
+    kb, st, clock, state, dm, ev = env
+    real = dm._open
+
+    def busy(kind):
+        raise LinkError("incomplete reply to 0x5")
+    dm._open = busy
+    dm.poll()
+    clock.t += 1.1
+    dm.poll()                                     # fails inside the startup window: no error screen
+    assert dm.link is None and dm.problem is None and dm.starting
+    dm._open = real
+    clock.t += 5.1
+    dm.poll()
+    assert dm.link is not None and dm.problem is None

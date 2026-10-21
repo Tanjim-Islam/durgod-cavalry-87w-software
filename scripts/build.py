@@ -5,16 +5,16 @@ Run: .venv/Scripts/python scripts/build.py   (the installer needs Inno Setup 6)
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME = "Cavalry87"
 ICON = ROOT / "engine" / "shell" / "icon.ico"
-VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+VERSION = re.search(r'VERSION = "([^"]+)"', (ROOT / "engine" / "version.py").read_text()).group(1)
 
 VERSION_INFO = """VSVersionInfo(
   ffi=FixedFileInfo(filevers=({v}), prodvers=({v})),

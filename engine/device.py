@@ -27,6 +27,10 @@ NEEDS_CABLE = ("Plug in the cable and press Fn + PrtSc (wired mode) once, so the
                "macros and colors. Lighting and settings already work over 2.4G.")
 
 
+STARTUP_SEARCH_S = 4.0
+STARTUP_GATE_S = 1.0
+
+
 class NotReady(RuntimeError):
     pass
 
@@ -63,6 +67,8 @@ class DeviceManager:
                  open_link: Callable[[str], Link], clock=time.monotonic, stable_s: float = 5.0):
         self.store, self._detect, self._open, self._clock = store, detect, open_link, clock
         self.stable_s = stable_s
+        self._born = clock()
+        self._was_starting = True
         self.kind: str | None = None
         self.link: Link | None = None
         try:
@@ -117,6 +123,10 @@ class DeviceManager:
         if link is not None:
             self._close(link)
         self._drop()
+        if code == "connect_failed" and self.starting:
+            # Just launched (the dongle may still be busy with a copy that just quit): retry quietly.
+            log.info("first connection attempt failed, retrying: %s", message)
+            return
         self._set_problem(code, message)
 
     def _set_problem(self, code: str | None, message: str = "") -> None:
@@ -136,6 +146,12 @@ class DeviceManager:
             self.notices[code] = message
         if changed:
             self._emit("state")
+
+    @property
+    def starting(self) -> bool:
+        """Still in the first few seconds after launch with nothing connected yet: searching, not "no keyboard"."""
+        return (self.link is None and self.problem is None and not self.asleep
+                and self._clock() - self._born < STARTUP_SEARCH_S)
 
     def dismiss(self, code: str) -> None:
         self._notice(code, None)
@@ -176,10 +192,15 @@ class DeviceManager:
             self._drop()
             self._set_problem(None)
             self._emit("link", {"kind": kind})
+        if self._was_starting and not self.starting:
+            self._was_starting = False
+            self._emit("state")              # the startup search is over: the UI can now say what it found
         if not kind or self._hold:
             return
         if self.link is None:
-            if self._clock() - self._since >= self.stable_s:
+            # A keyboard that was already plugged in when the app started needs no long settle wait.
+            gate = STARTUP_GATE_S if self._clock() - self._born < STARTUP_SEARCH_S else self.stable_s
+            if self._clock() - self._since >= gate:
                 self._connect()
             return
         try:

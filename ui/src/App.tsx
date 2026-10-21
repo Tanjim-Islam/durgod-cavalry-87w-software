@@ -5,6 +5,8 @@ import { Keyboard as KbIcon, Command, Lightbulb, Layers, Settings as Cog, Wand2 
 import { useApp, connectEvents } from "@/state/app";
 import { ConnectionPill } from "@/components/ConnectionPill";
 import { TitleBar } from "@/components/TitleBar";
+import { UpdateBox } from "@/components/UpdateBox";
+import { connectUpdates, useUpdate } from "@/state/update";
 import { Keyboard } from "@/components/Keyboard";
 import { PageShell } from "@/components/PageShell";
 import { StatusScreen } from "@/components/StatusScreen";
@@ -36,8 +38,8 @@ export default function App() {
   const status = deviceStatus(state);
   const [route, setRoute] = useState(location.hash);
   useEffect(() => {
-    const load = () => { void refresh(); void loadSettings(); };
-    connectEvents(); load();
+    const load = () => { void refresh(); void loadSettings(); void useUpdate.getState().load(); };
+    connectEvents(); connectUpdates(); load();
     const h = () => setRoute(location.hash);
     addEventListener("hashchange", h);
     addEventListener("pywebviewready", load);
@@ -68,7 +70,7 @@ export default function App() {
               );
             })}
           </nav>
-          <div className="mt-auto px-1"><ConnectionPill state={state} /></div>
+          <div className="mt-auto flex flex-col gap-2.5 px-1"><UpdateBox /><ConnectionPill state={state} /></div>
         </aside>
         <main className="relative min-h-0 overflow-hidden">
           <AnimatePresence mode="wait">

@@ -175,7 +175,7 @@ class Api:
     def get_state(self) -> dict:
         s, m = self.m.snapshot, self.m
         out = {"connected": m.link is not None, "link": m.kind, "partial": m.partial,
-               "asleep": m.asleep, "problem": m.problem, "pending": m.pending is not None,
+               "asleep": m.asleep, "searching": m.starting, "problem": m.problem, "pending": m.pending is not None,
                "notices": [{"code": c, "message": t} for c, t in m.notices.items()],
                "effects": [{"id": i, "name": n} for i, n in EFFECTS],
                "key_names": {str(k): v for k, v in KEY_SLOTS.items()}}

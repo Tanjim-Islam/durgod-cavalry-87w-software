@@ -49,8 +49,8 @@ export function Flyout() {
     if (newest) { await act("restore_backup", newest.name); await loadBackups(); }
   };
   return (
-    <motion.div className="flex h-full flex-col gap-3 rounded-2xl border border-line bg-bg p-4"
-      initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.18 }}>
+    // The window fades and slides in (engine/shell/animate.py) and Windows rounds its corners.
+    <motion.div className="flex h-full flex-col gap-3 bg-bg p-4">
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-2 font-display text-sm font-semibold"><span aria-hidden="true" className="size-2 rounded-full bg-accent shadow-[0_0_10px_var(--accent)]" />Cavalry 87W</span>
         <ConnectionPill state={state} />

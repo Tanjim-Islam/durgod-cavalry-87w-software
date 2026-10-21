@@ -47,6 +47,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Open {#AppName}"; Flags: nowait postinstall skipifsilent
+; An update started from inside the app reopens it afterwards.
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: Relaunch
 
 [Code]
 function RegisterWindowMessage(Name: String): Cardinal;
@@ -69,6 +71,11 @@ begin
     Waited := Waited + 250;
   end;
   Sleep(500);
+end;
+
+function Relaunch(): Boolean;
+begin
+  Result := ExpandConstant('{param:relaunch|0}') = '1';
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;

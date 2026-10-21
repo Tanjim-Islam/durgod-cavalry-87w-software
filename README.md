@@ -42,6 +42,7 @@ Every lighting mode, key remap, macro and setting the keyboard has, from one sma
 - Profiles you can save, rename, import and export
 - Automatic backups before every change, plus a factory snapshot you can always go back to
 - Tray icon: left-click opens the app, right-click opens a quick flyout
+- Checks for updates when it opens and installs them in one click (Settings has a Check for updates button too)
 - Start with Windows, dark and light themes
 
 <table>

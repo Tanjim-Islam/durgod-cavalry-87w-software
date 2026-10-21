@@ -19,7 +19,9 @@ A Windows 11 tray app that replaces Durgod's software for the Durgod Cavalry 87W
 | `engine/shell/` | pywebview windows, `Bridge` (the JS surface), tray, flyout, autostart, custom title bar, macro recorder |
 | `ui/src/` | React app; `bridge/mock.ts` is a full mock keyboard used outside the desktop app |
 | `tests/` | pytest; `tests/fakes.py` has a fake keyboard for both links |
-| `scripts/build.py` | Builds the release files into `dist/` |
+| `engine/version.py` | The app version, the single source for the package, the build and the update check |
+| `engine/shell/updater.py` | Update check against GitHub releases (once at launch, or from Settings) and in-place install |
+| `scripts/build.py`, `scripts/installer.iss` | Build the portable exe and the Setup installer (Inno Setup 6) into `dist/` |
 
 ## Commands
 
@@ -31,7 +33,7 @@ pnpm -C ui test                         # UI tests
 pnpm -C ui exec tsc -b                  # type check
 pnpm -C ui build                        # build the UI the app loads
 .venv/Scripts/python -m engine          # run the app (--dev uses the Vite server on :5173, --tray starts hidden)
-.venv/Scripts/python scripts/build.py   # portable exe + zip into dist/
+.venv/Scripts/python scripts/build.py   # portable exe + Setup installer into dist/ (needs Inno Setup 6)
 ```
 
 Use `pnpm` for UI scripts. Use `npx` for one-off CLIs, since `pnpm dlx` and `pnpm create` don't work in this environment. The Python venv is managed by uv and has no pip.

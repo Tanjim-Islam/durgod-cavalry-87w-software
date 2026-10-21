@@ -15,6 +15,7 @@ const base = { connected: false, link: null, partial: false, asleep: false, effe
 test("device status covers every connection state", () => {
   expect(deviceStatus(null).kind).toBe("starting");
   expect(deviceStatus(base).kind).toBe("none");
+  expect(deviceStatus({ ...base, searching: true }).kind).toBe("starting");
   expect(deviceStatus({ ...base, link: "wired" }).kind).toBe("connecting");
   expect(deviceStatus({ ...base, link: "radio", asleep: true }).kind).toBe("asleep");
   expect(deviceStatus({ ...base, link: "radio", problem: { code: "wrong_model", message: "m" } }))

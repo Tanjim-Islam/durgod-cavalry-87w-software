@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { Keyboard as KbIcon, Command, Lightbulb, Layers, Settings as Cog, Wand2 } from "lucide-react";
 import { useApp, connectEvents } from "@/state/app";
 import { ConnectionPill } from "@/components/ConnectionPill";
+import { TitleBar } from "@/components/TitleBar";
 import { Lighting } from "@/pages/Lighting";
 import { Keys } from "@/pages/Keys";
 import { Macros } from "@/pages/Macros";
@@ -40,11 +41,9 @@ export default function App() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="grid h-full grid-cols-[176px_1fr]">
-        <aside className="flex flex-col border-r border-line bg-sidebar px-2.5 py-4">
-          <div className="mb-5 flex items-center gap-2 px-2 font-display text-sm font-semibold tracking-wide">
-            <span aria-hidden="true" className="size-2 rounded-full bg-accent shadow-[0_0_10px_var(--accent)]" />Cavalry 87W
-          </div>
+      <div className="grid h-full grid-cols-[176px_1fr] grid-rows-[auto_1fr]">
+        <TitleBar />
+        <aside className="flex min-h-0 flex-col border-r border-line bg-sidebar px-2.5 pb-4 pt-3">
           <nav aria-label="Pages" className="flex flex-col gap-0.5">
             {PAGES.map((p) => {
               const soon = "soon" in p;
@@ -64,7 +63,7 @@ export default function App() {
           </nav>
           <div className="mt-auto px-1"><ConnectionPill state={state} /></div>
         </aside>
-        <main className="relative overflow-hidden">
+        <main className="relative min-h-0 overflow-hidden">
           <AnimatePresence mode="wait">
             {page === "lighting" && <Lighting key="l" />}
             {page === "keys" && <Keys key="k" />}

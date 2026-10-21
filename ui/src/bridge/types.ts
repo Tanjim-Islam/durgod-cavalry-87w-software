@@ -32,4 +32,4 @@ export interface ShortcutRow {
 }
 export interface BackupInfo { name: string; created: string; factory: boolean; label: string }
 export interface AppSettings { theme: "dark" | "light" | "system"; autostart: boolean }
-export interface DeviceEvent { name: "state" | "link" | "mirror_mismatch" | "error" | "recording_stopped"; payload: Record<string, unknown> }
+export interface DeviceEvent { name: "state" | "link" | "mirror_mismatch" | "error" | "recording_stopped" | "window"; payload: Record<string, unknown> }

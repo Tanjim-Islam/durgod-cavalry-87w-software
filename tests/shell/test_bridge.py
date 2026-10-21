@@ -207,7 +207,8 @@ def test_page_sees_only_the_intended_surface(tmp_path):
     try:
         assert _pywebview_functions(bridge) == set(API_METHODS) | {
             "set_app_settings", "export_profile_dialog", "import_profile_dialog",
-            "show_main", "hide_flyout", "minimize", "quit", "record_macro_start", "record_macro_stop"}
+            "show_main", "hide_main", "hide_flyout", "minimize", "toggle_maximize", "quit", "record_macro_start",
+            "record_macro_stop"}
     finally:
         bridge.stop()
 

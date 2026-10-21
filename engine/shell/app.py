@@ -19,6 +19,7 @@ from ..store import Store, default_root
 from . import single
 from .autostart import Autostart
 from .bridge import API_METHODS, Bridge, Courier
+from .chrome import CaptionRemover, enable_app_regions
 from .flyout import place
 from .tray import Tray
 
@@ -29,8 +30,8 @@ TITLE = "Cavalry 87W"
 FLYOUT_SIZE = (320, 470)
 SM_SHUTTINGDOWN = 0x2000
 EXPOSED = API_METHODS + ("set_app_settings", "export_profile_dialog", "import_profile_dialog",
-                         "show_main", "hide_flyout", "minimize", "quit", "record_macro_start",
-                         "record_macro_stop")
+                         "show_main", "hide_main", "hide_flyout", "minimize", "toggle_maximize", "quit",
+                         "record_macro_start", "record_macro_stop")
 log = logging.getLogger("cavalry")
 
 
@@ -138,16 +139,21 @@ def setup_logging(log_dir: Path) -> None:
 
 class Windows:
     def __init__(self, url: str, start_hidden: bool, on_quit=lambda: None, on_session_end=lambda: None,
-                 on_hide=lambda: None):
+                 on_hide=lambda: None, on_window=lambda maximized: None):
         self.main = webview.create_window(TITLE, url, width=1180, height=760, min_size=(980, 640),
-                                          hidden=start_hidden, background_color="#1a1a1a")
+                                          hidden=start_hidden, background_color="#1a1a1a", easy_drag=False)
         self.flyout = webview.create_window("Cavalry flyout", url + "#/flyout", width=FLYOUT_SIZE[0],
                                             height=FLYOUT_SIZE[1], frameless=True, on_top=True, hidden=True,
                                             resizable=False, background_color="#1a1a1a", easy_drag=False)
         self._quitting = False
         self._on_quit, self._on_session_end, self._on_hide = on_quit, on_session_end, on_hide
+        self._on_window = on_window
+        self._caption: CaptionRemover | None = None
         self._courier = Courier()
         self.main.events.closing += self._on_close
+        self.main.events.before_show += self._custom_caption
+        self.main.events.maximized += lambda: _quietly(lambda: self._on_window(True))
+        self.main.events.restored += lambda: _quietly(lambda: self._on_window(False))
         self.flyout.events.closing += self._on_flyout_close
         self.flyout.events.initialized += self._fix_flyout_url
 
@@ -155,12 +161,35 @@ class Windows:
         if self.flyout.real_url:
             self.flyout.real_url = fix_fragment(self.flyout.real_url)
 
+    def _custom_caption(self):
+        """The page draws the title bar; keep the native frame for resizing, snapping and animations."""
+        hwnd = _hwnd(self.main)
+        if not hwnd:
+            log.warning("no window handle: keeping the Windows title bar")
+            return
+        try:
+            self._caption = CaptionRemover(hwnd)
+            self._caption.install()
+        except Exception:
+            self._caption = None
+            log.exception("could not hide the Windows title bar")
+
     def _on_close(self):
         if self._quitting or win32api.GetSystemMetrics(SM_SHUTTINGDOWN):
             return True
+        self.hide_main()
+        return False
+
+    def hide_main(self) -> None:
         _quietly(self._on_hide)
         self.main.hide()
-        return False
+
+    def toggle_maximize(self) -> None:
+        hwnd = _hwnd(self.main)
+        if hwnd and win32gui.GetWindowPlacement(hwnd)[1] == win32con.SW_SHOWMAXIMIZED:
+            self.main.restore()
+        else:
+            self.main.maximize()
 
     def _on_flyout_close(self):
         if self._quitting or win32api.GetSystemMetrics(SM_SHUTTINGDOWN):
@@ -192,6 +221,8 @@ class Windows:
     def quit(self) -> None:
         self._quitting = True
         _quietly(self._on_quit)
+        if self._caption:
+            _quietly(self._caption.uninstall)
         for w in (self.flyout, self.main):
             _quietly(w.destroy)
 
@@ -236,10 +267,12 @@ def main(argv: list[str]) -> int:
         return 0
     root = default_root()
     setup_logging(root / "logs")
+    _quietly(enable_app_regions)
     try:
         store, manager, worker, api = build_engine(root)
         windows = Windows(ui_url(dev), start_hidden=tray_only, on_quit=worker.close, on_session_end=worker.stop,
-                          on_hide=lambda: bridge.pause_recording())
+                          on_hide=lambda: bridge.pause_recording(),
+                          on_window=lambda maximized: bridge.push("window", {"maximized": maximized}))
         bridge = Bridge(api, windows, Autostart(launch_command()))
         fns = exposed_functions(bridge)
         for w in (windows.main, windows.flyout):

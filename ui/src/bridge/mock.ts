@@ -161,6 +161,6 @@ export function createMock(emit: (e: DeviceEvent) => void) {
         { kind: "key", code: 0x0c, release: false, delay_ms: 120 }, { kind: "key", code: 0x0c, release: true, delay_ms: 70 },
       ] as MacroEvent[] };
     },
-    async show_main() {}, async hide_flyout() {}, async minimize() {}, async quit() {},
+    async show_main() {}, async hide_main() {}, async hide_flyout() {}, async minimize() {}, async toggle_maximize() {}, async quit() {},
   };
 }

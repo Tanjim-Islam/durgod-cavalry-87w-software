@@ -52,7 +52,7 @@ def test_exposed_names_are_exactly_the_js_surface():
     assert len(names) == len(set(names))
     assert set(names) == set(API_METHODS) | {"set_app_settings", "export_profile_dialog",
                                              "import_profile_dialog", "show_main", "hide_main", "hide_flyout",
-                                             "minimize", "toggle_maximize", "quit", "record_macro_start",
+                                             "minimize", "toggle_maximize", "open_logs", "quit", "record_macro_start",
                                              "record_macro_stop"}
     assert set(names) == set(EXPOSED)
     assert all(inspect.isfunction(f) and not hasattr(f, "__self__") for f in fns)

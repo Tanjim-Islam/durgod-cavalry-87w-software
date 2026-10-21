@@ -73,6 +73,9 @@ class DeviceManager:
         self.partial = False
         self.radio_config: bytes | None = None   # 2.4G before any cable read: the only block it can read
         self.asleep = False
+        self.problem: dict | None = None    # why there's no working connection: {"code", "message"}
+        self.notices: dict[str, str] = {}   # non-blocking warnings the UI shows as banners
+        self._hold = False                  # wrong keyboard: don't retry until the device changes or Retry
         self.last_warning: str | None = None
         self.pending: Snapshot | None = None
         self._pending_blocks: list[str] = []
@@ -110,11 +113,38 @@ class DeviceManager:
         if had:
             self._emit("state")
 
-    def _abort(self, link: Link | None, message: str) -> None:
+    def _abort(self, link: Link | None, message: str, code: str = "connect_failed") -> None:
         if link is not None:
             self._close(link)
         self._drop()
-        self._emit("error", {"message": message})
+        self._set_problem(code, message)
+
+    def _set_problem(self, code: str | None, message: str = "") -> None:
+        """Shown as a status screen. Only a change is announced, so a retry loop can't spam the UI."""
+        new = {"code": code, "message": message} if code else None
+        if new != self.problem:
+            self.problem = new
+            if new:
+                log.warning("keyboard problem (%s): %s", code, message)
+            self._emit("state")
+
+    def _notice(self, code: str, message: str | None) -> None:
+        if message is None:
+            changed = self.notices.pop(code, None) is not None
+        else:
+            changed = self.notices.get(code) != message
+            self.notices[code] = message
+        if changed:
+            self._emit("state")
+
+    def dismiss(self, code: str) -> None:
+        self._notice(code, None)
+
+    def retry(self) -> None:
+        """The user asked to try again now: forget the last failure and skip the settle wait."""
+        self._hold = False
+        self._set_problem(None)
+        self._since = self._clock() - self.stable_s
 
     def _went_to_sleep(self) -> None:
         """2.4G dongle present but the keyboard is asleep or off: a status, not an error."""
@@ -130,21 +160,23 @@ class DeviceManager:
             log.warning("could not save mirror: %s", e)
             return False
         self._mirror_failed = False
+        self._notice("mirror", None)
         return True
 
     def _persist(self, snap: Snapshot, message: str) -> None:
         """Background mirror save: one error event per run of failures."""
         if not self._save_mirror(snap) and not self._mirror_failed:
             self._mirror_failed = True
-            self._emit("error", {"message": message})
+            self._notice("mirror", message)
 
     def poll(self) -> None:
         kind = self._detect()
         if kind != self.kind:
-            self.kind, self.asleep = kind, False
+            self.kind, self.asleep, self._hold = kind, False, False
             self._drop()
+            self._set_problem(None)
             self._emit("link", {"kind": kind})
-        if not kind:
+        if not kind or self._hold:
             return
         if self.link is None:
             if self._clock() - self._since >= self.stable_s:
@@ -157,7 +189,7 @@ class DeviceManager:
             cfg = self.link.read_config()
         except LinkError as e:
             self._drop()
-            self._emit("error", {"message": f"Lost the keyboard: {e}"})
+            self._set_problem("lost", str(e))
             return
         if self.snapshot and cfg != self.snapshot.config:
             snap = self.snapshot.copy()
@@ -190,7 +222,10 @@ class DeviceManager:
             return
         self.asleep = False
         if len(ident) < 6 or ident[5] != MODEL_ID:
-            self._abort(link, f"Not a Cavalry 87W (model {ident.hex()})")
+            model = f"{ident[5]:#04x}" if len(ident) >= 6 else ident.hex() or "no answer"
+            self._abort(link, f"The connected device reports model {model}; a Cavalry 87W reports {MODEL_ID:#04x}.",
+                        "wrong_model")
+            self._hold = True
             return
         factory_problem = None
         try:
@@ -213,8 +248,8 @@ class DeviceManager:
         except Exception as e:
             self._abort(link, str(e))
             return
-        if factory_problem:
-            self._emit("error", {"message": f"{factory_problem}. Will retry on the next connection."})
+        if link.kind == "wired":
+            self._notice("factory", f"{factory_problem}. Will retry on the next connection." if factory_problem else None)
         if link.kind == "wired":
             changed = [b for b in prev.changed_blocks(snap) if b != "config"] if prev else []
             if changed:
@@ -223,6 +258,7 @@ class DeviceManager:
             self._persist(snap, MIRROR_ERROR)
         self.link, self.snapshot, self.partial = link, snap, partial
         self.radio_config = cfg if partial else None
+        self.problem = None
         if self.pending is not None and not partial:
             if not self._replay(snap):
                 return
@@ -237,7 +273,8 @@ class DeviceManager:
             self._push(final, base.changed_blocks(final))
         except Exception as e:
             log.warning("replay failed: %s", e)
-            self._emit("error", {"message": "Changes could not be applied after reconnecting"})
+            self._notice("replay", "Changes made just before the keyboard disconnected couldn't be applied. "
+                                   "Check them and make them again.")
             self._drop()
             return False
         self.snapshot = final.copy()

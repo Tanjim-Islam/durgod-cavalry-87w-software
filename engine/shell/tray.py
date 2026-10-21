@@ -9,6 +9,8 @@ import win32api
 import win32con
 import win32gui
 
+from .single import SHOW_MAIN_MESSAGE, TRAY_WINDOW
+
 log = logging.getLogger("cavalry")
 
 WM_TRAY = win32con.WM_USER + 20
@@ -47,6 +49,7 @@ class Tray:
         self._added = False
         self._attempts = 0
         self._taskbar_created = 0
+        self._show_main = 0
         self._thread = threading.Thread(target=self._run, name="cavalry-tray", daemon=True)
 
     def start(self) -> None:
@@ -78,6 +81,9 @@ class Tray:
                 self._call(self.on_main)
             elif action == "flyout":
                 self._call(self.on_flyout, win32api.GetCursorPos())
+            return 0
+        if msg == self._show_main and msg:   # a second launch asked us to come forward
+            self._call(self.on_main)
             return 0
         if msg == self._taskbar_created:
             self._added = False
@@ -124,12 +130,13 @@ class Tray:
     def _run(self) -> None:
         try:
             self._taskbar_created = win32gui.RegisterWindowMessage("TaskbarCreated")
+            self._show_main = win32gui.RegisterWindowMessage(SHOW_MAIN_MESSAGE)
             wc = win32gui.WNDCLASS()
             wc.lpszClassName = f"Cavalry87Tray{id(self)}"
             wc.lpfnWndProc = self._proc
             wc.hInstance = win32api.GetModuleHandle(None)
             win32gui.RegisterClass(wc)
-            self._hwnd = win32gui.CreateWindow(wc.lpszClassName, "Cavalry87Tray", 0, 0, 0, 0, 0, 0, 0,
+            self._hwnd = win32gui.CreateWindow(wc.lpszClassName, TRAY_WINDOW, 0, 0, 0, 0, 0, 0, 0,
                                                wc.hInstance, None)
             self._try_add()
             win32gui.PumpMessages()

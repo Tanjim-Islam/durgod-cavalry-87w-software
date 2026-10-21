@@ -175,7 +175,8 @@ class Api:
     def get_state(self) -> dict:
         s, m = self.m.snapshot, self.m
         out = {"connected": m.link is not None, "link": m.kind, "partial": m.partial,
-               "asleep": m.asleep,
+               "asleep": m.asleep, "problem": m.problem, "pending": m.pending is not None,
+               "notices": [{"code": c, "message": t} for c, t in m.notices.items()],
                "effects": [{"id": i, "name": n} for i, n in EFFECTS],
                "key_names": {str(k): v for k, v in KEY_SLOTS.items()}}
         if s is None:
@@ -386,6 +387,20 @@ class Api:
             s.key_colors = encode_key_colors(new)
             return s
         return self._apply(m)
+
+    # ---------- connection
+    @_guarded
+    def retry_connect(self) -> dict:
+        def run():
+            self.m.retry()
+            self.m.poll()
+        self.w.call(run).result(timeout=self.TIMEOUT_S)
+        return self.get_state()
+
+    @_guarded
+    def dismiss_notice(self, code: str) -> dict:
+        self.w.call(self.m.dismiss, code).result(timeout=self.TIMEOUT_S)
+        return self.get_state()
 
     # ---------- profiles and backups
     @_guarded

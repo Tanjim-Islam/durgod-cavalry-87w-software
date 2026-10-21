@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { motion } from "motion/react";
+import { Notices } from "@/components/Notices";
 
 export function PageShell({ title, meta, keyboard, children }: { title: string; meta?: string; keyboard?: ReactNode; children: ReactNode }) {
   return (
@@ -10,6 +11,7 @@ export function PageShell({ title, meta, keyboard, children }: { title: string; 
         <h1 className="font-display text-2xl font-semibold tracking-tight">{title}</h1>
         {meta && <p className="mt-0.5 text-xs text-muted">{meta}</p>}
       </header>
+      <Notices />
       {keyboard}
       {children}
     </motion.div>

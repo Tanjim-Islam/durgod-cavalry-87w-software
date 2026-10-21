@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import os
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -21,6 +22,7 @@ from . import single
 from .autostart import Autostart
 from .bridge import API_METHODS, Bridge, Courier
 from .chrome import CaptionRemover, enable_app_regions
+from .preflight import WEBVIEW2_DOWNLOAD, fatal, webview2_version
 from .flyout import place
 from .tray import Tray
 
@@ -31,7 +33,7 @@ TITLE = "Cavalry 87W"
 FLYOUT_SIZE = (320, 470)
 SM_SHUTTINGDOWN = 0x2000
 EXPOSED = API_METHODS + ("set_app_settings", "export_profile_dialog", "import_profile_dialog",
-                         "show_main", "hide_main", "hide_flyout", "minimize", "toggle_maximize", "quit",
+                         "show_main", "hide_main", "hide_flyout", "minimize", "toggle_maximize", "open_logs", "quit",
                          "record_macro_start", "record_macro_stop")
 log = logging.getLogger("cavalry")
 
@@ -204,6 +206,11 @@ class Windows:
         hwnd = _hwnd(self.main)
         if hwnd and win32gui.IsIconic(hwnd):
             self.main.restore()
+        if hwnd:
+            _force_foreground(hwnd)
+
+    def open_logs(self) -> None:
+        os.startfile(default_root() / "logs")
 
     def show_flyout(self, cursor) -> None:
         mon = win32api.MonitorFromPoint(cursor, win32con.MONITOR_DEFAULTTONEAREST)
@@ -285,10 +292,14 @@ def main(argv: list[str]) -> int:
     _dpi_aware()
     dev, tray_only = "--dev" in argv, "--tray" in argv
     if not single.acquire():
-        single.focus_existing(TITLE)
+        single.focus_existing()
         return 0
     root = default_root()
     setup_logging(root / "logs")
+    if not dev and not webview2_version():
+        fatal(TITLE, "Cavalry 87W needs the Microsoft Edge WebView2 Runtime, which isn't installed on this PC.\n\n"
+                     "Open the download page now?", WEBVIEW2_DOWNLOAD)
+        return 1
     _quietly(enable_app_regions)
     try:
         store, manager, worker, api = build_engine(root)
@@ -300,15 +311,25 @@ def main(argv: list[str]) -> int:
         for w in (windows.main, windows.flyout):
             w.expose(*fns)
         tray = Tray(str(ICON), TITLE, windows.show_main, windows.show_flyout, on_session=windows.session)
-    except Exception:
+    except FileNotFoundError as e:
         log.exception("could not start %s", TITLE)
-        raise
+        fatal(TITLE, f"Cavalry 87W is missing some of its files and can't start.\n\n{e}\n\n"
+                     "Download it again from the Releases page.")
+        return 1
+    except Exception as e:
+        log.exception("could not start %s", TITLE)
+        fatal(TITLE, f"Cavalry 87W couldn't start.\n\n{e}\n\nDetails are in {root / 'logs' / 'app.log'}")
+        return 1
     try:
         bridge.start()
         worker.start()
         tray.start()
-        webview.start(debug=dev, http_server=not dev, private_mode=True,
+        webview.start(debug=dev, http_server=not dev, private_mode=True, gui="edgechromium",
                       storage_path=str(root / "webview"), icon=str(ICON))
+    except Exception as e:
+        log.exception("%s stopped unexpectedly", TITLE)
+        fatal(TITLE, f"Cavalry 87W stopped unexpectedly.\n\n{e}\n\nDetails are in {root / 'logs' / 'app.log'}")
+        return 1
     finally:
         for step in (bridge.stop, tray.stop, worker.stop):
             _quietly(step)

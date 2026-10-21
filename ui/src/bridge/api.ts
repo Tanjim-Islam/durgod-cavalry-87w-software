@@ -52,7 +52,7 @@ export function onEvent(cb: (e: DeviceEvent) => void): () => void {
   return () => listeners.delete(cb);
 }
 
-export const windowAction = (name: "show_main" | "hide_main" | "hide_flyout" | "minimize" | "toggle_maximize" | "quit") =>
+export const windowAction = (name: "show_main" | "hide_main" | "hide_flyout" | "minimize" | "toggle_maximize" | "open_logs" | "quit") =>
   call<void>(name);
 
 /** Resolves at once in a plain browser (mock); in the desktop app, when the real api is in. */

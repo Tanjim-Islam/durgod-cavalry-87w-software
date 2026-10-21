@@ -7,6 +7,8 @@ import { ConnectionPill } from "@/components/ConnectionPill";
 import { EffectRow } from "@/components/EffectRow";
 import { LevelSlider } from "@/components/LevelSlider";
 import { windowAction } from "@/bridge/api";
+import { StatusScreen } from "@/components/StatusScreen";
+import { blocked, deviceStatus } from "@/lib/status";
 import { useApp } from "@/state/app";
 
 const BLUR_GRACE_MS = 300;
@@ -38,6 +40,7 @@ export function Flyout() {
     return () => { removeEventListener("focus", onFocus); removeEventListener("blur", onBlur); removeEventListener("keydown", esc); };
   }, [confirmOpen]);
   const l = state?.lighting;
+  const status = deviceStatus(state);
   const off = !state?.connected;
   const full = !off && !state?.partial; // profiles and backups need everything read over the cable once
   const newest = backups.find((b) => !b.factory) ?? backups[0];
@@ -52,6 +55,7 @@ export function Flyout() {
         <span className="flex items-center gap-2 font-display text-sm font-semibold"><span aria-hidden="true" className="size-2 rounded-full bg-accent shadow-[0_0_10px_var(--accent)]" />Cavalry 87W</span>
         <ConnectionPill state={state} />
       </div>
+      {blocked(status) ? <StatusScreen status={status} compact /> : <>
       <EffectRow effects={state?.effects ?? []} value={l?.effect} disabled={off}
         onChange={(id) => void act("set_lighting", id, null, null, null, null)} />
       <div className="rounded-xl border border-line bg-surface p-3">
@@ -66,6 +70,7 @@ export function Flyout() {
         <option value="" disabled>Apply a profile…</option>
         {profiles.map((p) => <option key={p} value={p}>{p}</option>)}
       </select>
+      </>}
       <div className="mt-auto flex flex-col gap-2.5 border-t border-line pt-3 text-[12px]">
         <label className="flex items-center justify-between whitespace-nowrap text-muted">Start with Windows
           <Switch aria-label="Start with Windows" checked={settings.autostart} onCheckedChange={(v) => void setAppSettings({ autostart: v })} />

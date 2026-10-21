@@ -27,6 +27,25 @@ const factory = (layer: number, slot: number): Action =>
 const CABLE_WARNING = "Saved. This key works over 2.4G but won't send over the cable (cable supports up to F21).";
 const KEY_NAMES: Record<string, string> = { "0": "Esc", "45": "J", "59": "Fn", "96": "Pause" };
 
+// Dev only: ?scenario=none|connecting|asleep|wrong_model|connect_failed|lost|partial|notices previews each state.
+function applyScenario(s: KbState, scenario: string | null) {
+  const off = { connected: false, layers: undefined, macros: undefined };
+  switch (scenario) {
+    case "none": Object.assign(s, off, { link: null }); break;
+    case "connecting": Object.assign(s, off, { link: "wired" }); break;
+    case "asleep": Object.assign(s, off, { link: "radio", asleep: true }); break;
+    case "wrong_model": Object.assign(s, off, { link: "radio",
+      problem: { code: "wrong_model", message: "The connected device reports model 0x99; a Cavalry 87W reports 0x7b." } }); break;
+    case "connect_failed": Object.assign(s, off, { link: "wired",
+      problem: { code: "connect_failed", message: "cannot open keyboard (error 5)" } }); break;
+    case "lost": Object.assign(s, off, { link: "radio", problem: { code: "lost", message: "no ack for 0x44 packet 3" } }); break;
+    case "partial": Object.assign(s, { partial: true, layers: undefined, macros: undefined, palette: undefined, key_colors: undefined }); break;
+    case "notices": Object.assign(s, { pending: true, notices: [
+      { code: "mirror", message: "Couldn't save the local copy of your keyboard settings" },
+      { code: "factory", message: "The keyboard gave two different readings, so no factory snapshot was saved yet. Will retry on the next connection." }] }); break;
+  }
+}
+
 export function createMock(emit: (e: DeviceEvent) => void) {
   const wait = () => new Promise((r) => setTimeout(r, 150));
   const s: KbState = {
@@ -38,6 +57,7 @@ export function createMock(emit: (e: DeviceEvent) => void) {
     macros: [] as Macro[], key_colors: Array.from({ length: 126 }, (): RGB => [0, 0, 0]),
     palette: Array.from({ length: 23 }, () => DEFAULT_GROUP.map((c) => [...c] as RGB)),
   };
+  applyScenario(s, typeof location === "undefined" ? null : new URLSearchParams(location.search).get("scenario"));
   let profiles: string[] = ["Default"];
   const backups: BackupInfo[] = [
     { name: "factory", created: "2026-10-19T23:05:41", factory: true, label: "first connection" },
@@ -49,6 +69,16 @@ export function createMock(emit: (e: DeviceEvent) => void) {
 
   return {
     async subscribe() {},
+    async retry_connect() {
+      await wait();
+      Object.assign(s, { connected: true, link: s.link ?? "radio", asleep: false, problem: null });
+      return done();
+    },
+    async dismiss_notice(code: string) {
+      await wait();
+      s.notices = (s.notices ?? []).filter((n) => n.code !== code);
+      return done();
+    },
     async get_state() { await wait(); return structuredClone(s); },
     async set_lighting(effect?: number | null, brightness?: number | null, speed?: number | null,
                        color?: number | null, direction?: boolean | null) {

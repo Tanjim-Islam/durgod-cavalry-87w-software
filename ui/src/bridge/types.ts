@@ -25,7 +25,10 @@ export interface KbState {
   macros?: Macro[] | null; key_colors?: RGB[] | null; palette?: RGB[][] | null;
   lighting_error?: string; settings_error?: string; layers_error?: string; macros_error?: string;
   key_colors_error?: string; palette_error?: string; warning?: string;
+  problem?: Problem | null; notices?: Notice[]; pending?: boolean;
 }
+export interface Problem { code: "wrong_model" | "connect_failed" | "lost"; message: string }
+export interface Notice { code: string; message: string }
 export interface ShortcutRow {
   keys: string; group: string; label: string; slot: number | null; current: string;
   current_action: Action | null; changed: boolean;

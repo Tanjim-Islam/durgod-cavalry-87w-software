@@ -446,7 +446,8 @@ def test_subscribe_forwards_manager_events(api):
     a.subscribe(lambda n, p: got.append((n, p)))
     kb.connected = False
     a.m.poll()
-    assert ("state", {}) in got and any(n == "error" for n, _ in got)
+    assert ("state", {}) in got and not any(n == "error" for n, _ in got)
+    assert a.get_state()["problem"]["code"] == "lost"
     assert a.get_state()["connected"] is False
 
 
@@ -518,3 +519,16 @@ def test_radio_before_any_cable_read_allows_lighting_only(tmp_path, fixture_bloc
     assert s["lighting"]["effect"] == 7
     with pytest.raises(ApiError, match="wired mode"):
         a.remap_key(1, 45, {"type": "consumer", "usage": 0x192})
+
+
+def test_state_reports_problem_notices_and_retry(tmp_path, fixture_blocks):
+    a, kb = make(tmp_path, fixture_blocks)
+    s = a.get_state()
+    assert s["problem"] is None and s["notices"] == [] and s["pending"] is False
+    a.m._notice("mirror", "disk full")
+    assert a.get_state()["notices"] == [{"code": "mirror", "message": "disk full"}]
+    assert a.dismiss_notice("mirror")["notices"] == []
+    a.m._abort(a.m.link, "boom")
+    assert a.get_state()["problem"] == {"code": "connect_failed", "message": "boom"}
+    s = a.retry_connect()
+    assert s["connected"] is True and s["problem"] is None

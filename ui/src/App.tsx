@@ -5,6 +5,10 @@ import { Keyboard as KbIcon, Command, Lightbulb, Layers, Settings as Cog, Wand2 
 import { useApp, connectEvents } from "@/state/app";
 import { ConnectionPill } from "@/components/ConnectionPill";
 import { TitleBar } from "@/components/TitleBar";
+import { Keyboard } from "@/components/Keyboard";
+import { PageShell } from "@/components/PageShell";
+import { StatusScreen } from "@/components/StatusScreen";
+import { blocked, deviceStatus } from "@/lib/status";
 import { Lighting } from "@/pages/Lighting";
 import { Keys } from "@/pages/Keys";
 import { Macros } from "@/pages/Macros";
@@ -22,11 +26,14 @@ const PAGES = [
   { id: "settings", label: "Settings", icon: Cog },
 ] as const;
 type PageId = (typeof PAGES)[number]["id"];
+// These pages only make sense with a keyboard to talk to; Profiles and Settings still work offline.
+const DEVICE_PAGES = new Set<PageId>(["lighting", "keys", "macros", "shortcuts"]);
 
 export default function App() {
   const { state, refresh, loadSettings } = useApp();
   const themeMode = useApp((s) => s.themeMode);
   const [page, setPage] = useState<PageId>("lighting");
+  const status = deviceStatus(state);
   const [route, setRoute] = useState(location.hash);
   useEffect(() => {
     const load = () => { void refresh(); void loadSettings(); };
@@ -65,12 +72,19 @@ export default function App() {
         </aside>
         <main className="relative min-h-0 overflow-hidden">
           <AnimatePresence mode="wait">
+            {blocked(status) && DEVICE_PAGES.has(page) ? (
+              <PageShell key={`status-${page}`} title={PAGES.find((p) => p.id === page)!.label}
+                keyboard={<div className="opacity-40"><Keyboard lighting={null} /></div>}>
+                <StatusScreen status={status} />
+              </PageShell>
+            ) : <>
             {page === "lighting" && <Lighting key="l" />}
             {page === "keys" && <Keys key="k" />}
             {page === "macros" && <Macros key="m" />}
             {page === "shortcuts" && <Shortcuts key="s" />}
             {page === "profiles" && <Profiles key="p" />}
             {page === "settings" && <Settings key="t" />}
+            </>}
           </AnimatePresence>
         </main>
       </div>

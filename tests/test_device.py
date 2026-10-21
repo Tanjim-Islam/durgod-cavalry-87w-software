@@ -127,7 +127,29 @@ def test_wrong_model_refused(env):
     kb, st, clock, state, dm, ev = env
     kb.identity = bytes.fromhex("030000000099")
     connect(dm, clock)
-    assert dm.link is None and "error" in ev
+    assert dm.link is None and dm.problem["code"] == "wrong_model" and "0x99" in dm.problem["message"]
+    n = len(kb.sent)
+    for _ in range(3):                            # held: no reconnect attempts, no repeated announcements
+        clock.t += 5.1
+        dm.poll()
+    assert len(kb.sent) == n and ev.count("state") == 1
+    kb.identity = bytes.fromhex("03000000007b")
+    dm.retry()
+    dm.poll()                                     # Retry tries again right away
+    assert dm.link is not None and dm.problem is None
+
+
+def test_unplugging_clears_the_wrong_model_hold(env):
+    kb, st, clock, state, dm, ev = env
+    kb.identity = bytes.fromhex("030000000099")
+    connect(dm, clock)
+    kb.identity = bytes.fromhex("03000000007b")
+    state["kind"] = None
+    dm.poll()
+    assert dm.problem is None
+    state["kind"] = "wired"
+    connect(dm, clock)
+    assert dm.link is not None
 
 
 def test_no_write_without_backup(env, monkeypatch):
@@ -192,12 +214,12 @@ def test_replay_runs_once(env):
     assert ev.count("error") == 0              # apply failures are raised, not evented
     clock.t += 5.1
     dm.poll()                                  # replay fails too
-    assert dm.pending is None and dm.link is None and ev.count("error") == 1
+    assert dm.pending is None and dm.link is None and "replay" in dm.notices
     kb.fail_on_write = False
     n = len(kb.sent)
     clock.t += 5.1
     dm.poll()
-    assert dm.link is not None and ev.count("error") == 1
+    assert dm.link is not None and ev.count("error") == 0
     assert all(p[1] >= 0x80 for p in kb.sent[n:])
     assert kb.state.palette != bytes(483)
 
@@ -214,7 +236,7 @@ def test_read_failure_on_connect_leaves_no_half_open_link(env):
         return link
     dm._open = bad
     connect(dm, clock)
-    assert dm.link is None and ev.count("error") == 1 and closed
+    assert dm.link is None and dm.problem == {"code": "connect_failed", "message": "garbled"} and closed
     dm._open = real
     clock.t += 5.1
     dm.poll()
@@ -310,7 +332,7 @@ def test_poll_mirror_save_failure_reported_once(env, monkeypatch):
         kb.state.config = set_sleep(v)(kb.state.copy()).config
         dm.poll()
         dm.poll()
-    assert ev.count("error") == 1
+    assert list(dm.notices) == ["mirror"] and ev.count("error") == 0
     assert Config(dm.snapshot.config).sleep == 5
 
 
@@ -359,7 +381,7 @@ def test_factory_needs_two_identical_reads(env):
     n = iter(range(1000))
     real = flaky_reads(dm, lambda s: setattr(s, "palette", bytes([next(n) % 256]) * 483))
     connect(dm, clock)
-    assert dm.link is not None and not st.has_factory() and ev.count("error") == 1
+    assert dm.link is not None and not st.has_factory() and "two different readings" in dm.notices["factory"]
     with pytest.raises(NotReady):
         dm.apply(set_sleep(0))                   # never write without a factory snapshot
     assert Config(kb.state.config).sleep != 0
@@ -525,7 +547,7 @@ def test_failed_replay_emits_state(env):
     ev.clear()
     clock.t += 5.1
     dm.poll()
-    assert dm.link is None and ev.count("error") == 1 and ev[-1] == "state"
+    assert dm.link is None and "replay" in dm.notices and ev[-1] == "state"
 
 
 def test_mirror_save_failure_after_write_is_a_warning(env, monkeypatch):
@@ -564,8 +586,8 @@ def test_mirror_save_failure_after_replay_is_one_error(env, monkeypatch):
     clock.t += 5.1
     dm.poll()
     assert kb.state.palette == bytes(483) and dm.snapshot.palette == bytes(483)
-    errors = [p["message"] for n, p in got if n == "error"]
-    assert errors == ["Saved to keyboard, but the local copy couldn't be saved"]
+    assert [n for n, p in got if n == "error"] == []
+    assert dm.notices == {"mirror": "Saved to keyboard, but the local copy couldn't be saved"}
     assert dm.link is not None
 
 
@@ -623,7 +645,7 @@ def test_transient_mirror_read_error_on_radio_connect_keeps_mirror(env, monkeypa
     fail_reads(monkeypatch, "mirror.json")
     state["kind"] = "radio"
     connect(dm, clock)
-    assert dm.link is None and "error" in ev
+    assert dm.link is None and dm.problem["code"] == "connect_failed"
     assert mirror.read_text() == original
     assert not list(st.root.glob("mirror.corrupt-*.json"))
     clock.t += 5.1
@@ -641,7 +663,7 @@ def test_transient_mirror_read_error_on_wired_connect_keeps_mirror(env, monkeypa
     fail_reads(monkeypatch, "mirror.json")
     state["kind"] = "wired"
     connect(dm, clock)
-    assert dm.link is None and "error" in ev
+    assert dm.link is None and dm.problem["code"] == "connect_failed"
     assert mirror.read_text() == original
     assert not list(st.root.glob("mirror.corrupt-*.json"))
 

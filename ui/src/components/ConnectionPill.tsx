@@ -4,6 +4,9 @@ export function pillText(s: KbState | null): string {
   if (!s || !s.link) return "Not connected";
   if (s.partial && s.connected) return "2.4G · lighting and settings only";
   const kind = s.link === "wired" ? "Wired" : "2.4G";
+  if (!s.connected && s.problem) {
+    return `${kind} · ${{ wrong_model: "not a Cavalry 87W", connect_failed: "can't connect", lost: "reconnecting…" }[s.problem.code]}`;
+  }
   if (s.asleep) return `${kind} · keyboard asleep`;
   return s.connected ? `${kind} · connected` : `${kind} · connecting…`;
 }
